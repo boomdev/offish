@@ -4,7 +4,7 @@
 
 ## Pilot workflow and pass criteria
 
-Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptions](fixtures/pilot/assumptions.md). The maintainer uses Omarchy for the first hands-on run and follows the [walkthrough](fixtures/pilot/walkthrough.md): open an ordinary folder offline, edit a selection, use the assumptions as authorised context, review a proposed date change, accept or reject it, restore, then repeat with an external save while a proposal is pending. The procedure is written. The run is still pending.
+Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptions](fixtures/pilot/assumptions.md). The maintainer uses Omarchy for the first hands-on run and follows the [walkthrough](fixtures/pilot/walkthrough.md): open an ordinary folder offline, edit a selection, use the assumptions as authorised context, review a proposed date change, accept or reject it, restore, then repeat with an external save while a proposal is pending. The maintainer confirmed completing the walkthrough.
 
 | Test | Pass criterion | Evidence to date |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptio
 | CHG-01 · Review and restore | Proposed and rejected edits leave accepted bytes alone. Apply changes only the target. Restore returns exact preimage. A later external change is retained. | Linux filesystem checks and the simulated Chromium workflow passed. Production review and live agent checks remain open. |
 | AI-01/02 · Context | The adapter gets approved context and can propose only for the selected span. An unauthorised reference and post-cancellation output are refused. | Stub checks passed. Live provider containment and cancellation remain open. |
 | NFR-05 · Interaction | Keyboard reaches editor and review controls. Diffs have accessible labels and keyboard acceptance. Screen readers announce state and IME works. | Chromium keyboard focus, text insertion, synthetic accept and restore controls passed. Native text insert passed. Real screen reader and IME sessions remain untested. |
-| Pilot feedback | The Phase 0 early adopter is the maintainer on Omarchy. The user-success measure is that maintainer's edit, review and restore walkthrough. The five-user, four-unassisted target waits until more early adopters join. | Audience and operating system recorded. The [walkthrough procedure](fixtures/pilot/walkthrough.md) is written. The run remains pending. |
+| Pilot feedback | The Phase 0 early adopter is the maintainer on Omarchy. The user-success measure is that maintainer's edit, review and restore walkthrough. The five-user, four-unassisted target waits until more early adopters join. | Audience and operating system recorded. The maintainer confirmed completing the walkthrough. Usability observations have not been recorded. |
 
 Platform support is tiered. Omarchy provides the Phase 0 and Phase 1 evidence,
 and macOS and Windows are gates for the Phase 2 release.
@@ -357,6 +357,18 @@ buffer and byte-identical reload before it reports PASS.
 
 ## P0-01 · Product and reuse
 
+The [pilot walkthrough](fixtures/pilot/walkthrough.md) file checks were
+rehearsed with headless Neovim 0.12.6 on Omarchy 4.5.0, kernel
+7.2.15-1-omarchy, Hyprland 0.56.2 and WebKitGTK 2.54.1-1. The internal and
+external displays were at scales 1.6 and 1.0 respectively. The copied
+fixtures and editor ran in a network namespace with loopback only and no
+routes. All three byte comparisons passed (no-op save, rejection and
+restore). The author edit and acceptance each changed only the intended
+sentence. The proposal spike used only `assumptions.md` as reference
+context and rejected the stale proposal after a second editor process
+saved the notes line. The maintainer separately confirmed completing the
+walkthrough. The checks above are from the automated rehearsal.
+
 - Cursor's documented diff and review workflow supports the idea of giving
   feedback while an agent works. Offish's pilot tests whether a document
   selection and an explicit accept/reject step provide understandable control
@@ -558,7 +570,7 @@ flowchart LR
 
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
-| G0-1 | Early adopter count is one: the maintainer on Omarchy. The walkthrough procedure is written; the maintainer's run is pending. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
+| G0-1 | Early adopter count is one: the maintainer on Omarchy. The maintainer confirmed completing the walkthrough. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
 | G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. The simple syntax-hiding mode is assigned to the Phase 2 pilot. Real IME composition, direct paint latency and broader accessibility remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | ADR-0002 direction accepted. Hunk rebase, checkpoint restart recovery, modes and editor undo pass on Omarchy (P0-T29). Power-loss durability, full metadata, concurrent writers, symlinks and dropped watch events remain open. | P0-05 |
 | G0-4 | ADR-0005 direction accepted. Omarchy evidence is complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
