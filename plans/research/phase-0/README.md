@@ -36,6 +36,12 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Unauthorised in cloud; Omarchy run pending |
 | P0-T14 | IO-01 | `check_interop.py`: DOCX structure and PDF text/OCR baselines | Pass |
 | P0-T15 | SHEET-01, SLIDE-01 | `check_formats.py` and `ironcalc` spike: storage, recalculation, slide geometry | Pass / recorded |
+| P0-T16 | DOC-01, NFR-03 | `check_codemirror.py`: no-op preserves LF, CRLF, mixed and BOM bytes; CRLF edit keeps CRLF | Pass |
+| P0-T17 | DOC-01, ED-01 | `check_codemirror.py`: front matter as metadata, comment kept, syntax hidden until the cursor enters, image and table rendered | Pass |
+| P0-T18 | DOC-01, NFR-03 | `check_codemirror.py`: keyboard edits replay exactly as UTF-8 byte operations, including multilingual text and a surrogate pair | Pass |
+| P0-T19 | DOC-01 | `check_codemirror.py`: table cell edit through revealed source | Pass |
+| P0-T20 | CHG-01, NFR-05 | `check_codemirror.py`: inline labelled review, keyboard accept and reject, stale proposal refused, exact restore | Pass |
+| P0-T21 | NFR-02 | `check_editor.py` and `check_codemirror.py`: 50,000-word latency proxies | Recorded |
 
 ## Reproduce the Linux checks
 
@@ -88,6 +94,26 @@ python -B spikes/check_editor.py "$browser_spike/editor.js" --chromium /usr/bin/
 ~~~
 
 Omit `--chromium` to use the browser that Playwright installed.
+
+The CodeMirror 6 live preview check uses the same offline host. It reuses
+`check_proposals.py` for acceptance and restore, and `check_editor.py` for
+latency reporting.
+
+~~~sh
+codemirror_spike=$(mktemp -d)
+cp spikes/codemirror.mjs "$codemirror_spike/"
+(cd "$codemirror_spike" && npm install --no-save --ignore-scripts --no-fund --no-audit \
+  @codemirror/view@6.44.1 @codemirror/state@6.7.6 @codemirror/commands@6.11.2 \
+  @codemirror/language@6.13.1 @codemirror/lang-markdown@6.5.2 \
+  @codemirror/lang-yaml@6.1.3 @lezer/markdown@1.8.2 esbuild@0.28.2)
+"$codemirror_spike/node_modules/.bin/esbuild" "$codemirror_spike/codemirror.mjs" --bundle "--outfile=$codemirror_spike/codemirror.js"
+python -B spikes/check_codemirror.py "$codemirror_spike/codemirror.js" --chromium /usr/bin/chromium
+~~~
+
+The editor comparison runs on 26 November 2026 used Ubuntu 24.04.5,
+Linux 6.12.113, four vCPUs of an Intel Xeon, 16 GiB of memory, Node 22.23.4,
+Python 3.12.3, Playwright 1.65.2, and Google Chrome 157.0.8103.50. The
+ProseMirror check was rerun in the same environment.
 
 Run the Rust spikes from temporary copies. Save the absolute fixture path
 before changing directories.
@@ -185,14 +211,55 @@ the fixture's front matter as metadata: the browser probe strips it with a
 regular expression, and the Rust probe does not enable pulldown-cmark's YAML
 metadata block option. Under plain CommonMark the block reads as a thematic
 break followed by a setext heading. ADR-0001 now requires one authoritative
-parser and an Offish Markdown profile. A CodeMirror 6 live preview has not
-been tested yet. It is the source-first comparator to ProseMirror, and the
-MVP may use a live preview.
+parser and an Offish Markdown profile.
 
-Thirty Chromium text insertions into a generated 50,000-word model gave p50
-30.5 ms and p95 31.6 ms from beforeinput to the second animation-frame
-callback. This is a browser-only timing proxy. It does not measure physical
-keystroke-to-paint latency, Rust IPC, full parse on write, startup, or memory.
+### Editor comparison: CodeMirror 6 live preview and ProseMirror
+
+Both editors ran on the pilot fixture in the same offline Chromium host
+(P0-T11 and P0-T16 to P0-T21). The CodeMirror candidate edits the Markdown
+source directly. It uses `@lezer/markdown` with CommonMark, pipe tables and
+YAML front matter, hides inline syntax outside the lines holding the cursor,
+and renders images and tables as widgets that reveal their source when
+entered. All packages listed are MIT.
+
+| Scenario | CodeMirror 6 live preview | ProseMirror (default Markdown schema) |
+| --- | --- | --- |
+| No-op save | Exact bytes for LF, CRLF, mixed endings and BOM once the file's line separator is configured | Exact only because the spike re-serialises one paragraph; full-buffer serialisation changed bytes |
+| Front matter and comment | Parsed as front matter and shown as metadata; comment kept and styled | Removed by a regular expression before parsing |
+| Paragraph edit by keyboard | Only the edited span changes; UTF-8 byte operations replay exactly | Only for a unique single-line paragraph through a special-case splice |
+| Multilingual text and emoji | Byte operations replay exactly, including a surrogate pair | Not tested |
+| Table | Rendered as a table; a cell edit through revealed source changes only that cell | No table node in the schema |
+| Inline review | Labelled `del`/`ins` decorations in the document, keyboard accept and reject, stale proposal refused | Separate labelled panel outside the editor |
+| Syntax visibility | Markdown syntax appears on the line holding the cursor | Hidden (true WYSIWYG) |
+| Latency proxies, p95 over four runs | 6.1–11.8 ms to work and layout; 32.3–32.4 ms to second frame | 3.3–4.5 ms to work and layout; 32.2–32.4 ms to second frame |
+| Spike size | 407 source lines; 176 KB minified and gzipped, including the HTML, CSS and JavaScript code-block languages that lang-markdown pulls in | 89 source lines; 105 KB minified and gzipped, without a source-mapping layer |
+
+Findings:
+
+- Byte preservation in the live preview does not depend on parser agreement.
+  Edits are source splices, so `@lezer/markdown` only affects presentation,
+  and a disagreement shows up as a rendering error rather than changed bytes.
+  Rust still revalidates each operation. A WYSIWYG mode that writes through
+  structure would bring back the single-authority requirement of ADR-0001.
+- CodeMirror normalises CRLF and mixed line endings unless the line separator
+  is configured from the file. With a CRLF separator, a browser-handled Enter
+  inserted a bare LF and produced mixed endings. Binding Enter to
+  `insertNewline` and normalising typed or pasted line breaks fixed it.
+- Editor undo reverted an accepted proposal in the buffer while the accepted
+  file stayed unchanged. ADR-0002 must define undo across acceptance.
+- The original latency proxy, two animation frames after input, is bounded by
+  the 60 Hz display refresh (about 33 ms) and cannot separate editors. The
+  work-and-layout proxy ends after pending tasks and a forced layout. Both are
+  browser-only proxies. They do not measure physical keystroke-to-paint
+  latency, WebKitGTK, Rust IPC, full parse on write, startup, or memory. The
+  scale fixture is plain paragraphs, so decoration cost for dense markup is
+  not measured.
+- Untested: nested lists and blockquotes, marks spanning lines, IME
+  composition, screen reader behavior for hidden syntax and the table widget,
+  and WebKitGTK on Omarchy.
+
+The earlier run in the Debian environment gave p50 30.5 ms and p95 31.6 ms
+for ProseMirror on the frame-bounded proxy.
 
 ## P0-05 · Workspace and proposal guarantees
 
@@ -296,7 +363,7 @@ flowchart LR
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
 | G0-1 | Record early adopters and their operating systems, run the pilot walkthroughs and record the Omarchy reference desktop hardware. | Maintainer and Phase 0 research owner |
-| G0-2 | On Omarchy, validate the WebKitGTK runtime, CodeMirror 6 live preview and ProseMirror comparators, one authoritative span parser, table editing, keyboard review and IME. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-2 | On Omarchy, validate the WebKitGTK runtime with the CodeMirror 6 live preview candidate (passed in Chromium), nested structures, keyboard review and IME. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
 | G0-4 | Complete the signed-in Codex trial on Omarchy, confirm that ChatGPT sign-in is supported for Offish, prove cancellation and containment, and keep Cursor sign-in as the fallback. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

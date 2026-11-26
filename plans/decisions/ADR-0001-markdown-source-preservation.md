@@ -43,6 +43,10 @@ Keep Markdown bytes authoritative and edit through tracked source spans.
   validation must not run independent parsers that could disagree. Options
   are a Rust parser that sends a span-annotated tree to the editor, or the
   same parser running in the editor as WebAssembly. P0-04 selects one.
+  A live preview that edits source text directly may use its own parser for
+  presentation only, because its edits are byte splices that Rust
+  revalidates. Any mode that writes through document structure, such as
+  WYSIWYG, must use the authoritative parser's spans.
 - Maintain a source revision and editor ranges tied to validated source
   spans. Visual edits emit typed operations for supported ranges. Reparse the
   revised span and its affected structural context before saving. Open
@@ -71,7 +75,10 @@ untouched fixture source with a localised paragraph splice. The default
 global serialiser changed the body, and its schema lacked tables. The Rust
 spike recognised the table and produced a valid span. The two spikes used
 different parsers (markdown-it and pulldown-cmark), and neither handled
-front matter as metadata. Before accepting, validate in a real candidate
+front matter as metadata. A CodeMirror 6 live preview spike then parsed the
+front matter as metadata, preserved bytes for LF, CRLF, mixed endings and a
+BOM, and replayed every keyboard edit, including a table cell and a
+surrogate pair, as exact UTF-8 byte operations. Before accepting, validate in a real candidate
 editor with the authoritative parser: block boundary edits, repeated
 paragraphs, nested lists, tables, CRLF, front matter, comments, and marks
 spanning syntax. Revisit if unsupported-span coverage is too high for users

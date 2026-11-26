@@ -75,7 +75,9 @@ Open design items to settle before acceptance:
 The Linux spike passed a process exit after journaling (before replacement),
 an injected ENOSPC during replacement, stale proposal rejection and restore
 conflict checks. It models one span per proposal and one outstanding
-checkpoint. [Evidence and reproduction](../research/phase-0/README.md) cover
+checkpoint. In the CodeMirror editor spike, editor undo reverted an accepted
+proposal in the buffer while the accepted file stayed unchanged, which
+confirms that the undo design item needs a decision. [Evidence and reproduction](../research/phase-0/README.md) cover
 only a small Linux fixture on overlayfs. Before accepting, extend the spike to
 several hunks with partial acceptance and a checkpoint history, and verify
 directory durability and metadata preservation on real local volumes,
