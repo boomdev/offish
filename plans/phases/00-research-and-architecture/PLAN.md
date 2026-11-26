@@ -96,11 +96,11 @@ Spike acceptance tests carry IDs and requirement links in the [Phase 0 evidence]
 | Native editors may miss keyboard, IME, visual fidelity, or assistive technology thresholds. | P0-03 | Compare system WebView, bundled Chromium and native paths on the same fixtures. | G0-2 |
 | WebKitGTK on Hyprland/Wayland may differ from Chromium in rendering, latency and GPU behavior. | P0-03 | Run the Tauri spike on Omarchy, record native Wayland versus XWayland and any renderer workarounds. | G0-2 |
 | Two Markdown parsers can disagree on spans. | P0-04 | Choose one authoritative parser and compare editor and Rust spans on the fixture corpus. | G0-2 |
-| ChatGPT sign-in may not be supported for a third-party integration such as Offish, or the account may lack entitlement. | P0-06 | Confirm the official terms and run the signed-in Omarchy trial. Fall back to Cursor sign-in. | G0-4 |
+| The shipped OAuth client must verify user entitlement and handle sign-in failures. | Phase 2 agent integration | Implement the documented Sign in with ChatGPT flow and verify it with Codex app-server. Keep Cursor sign-in as the fallback. | Phase 2 release |
 | Crash durability differs across operating systems and synced storage. | P0-05 | Linux failure tests now; macOS and Windows tests before the Phase 2 release. | G0-3, Phase 2 gate |
 | A five-person pilot is not available yet, so the old success target cannot be met during Phase 0. | Maintainer | Proceed with one early adopter, the maintainer, on Omarchy. The five-user, four-unassisted target waits until more early adopters join. | G0-1 |
 | Which phase delivers the simple syntax-hiding mode. | Maintainer | On 2026-11-26 the maintainer assigned it to the Phase 2 pilot, by extending the CodeMirror 6 live preview. | Resolved |
-| Reference hardware and the broader Linux distribution matrix. | P0-02 | Record the Omarchy baseline; extend before Phase 2. | G0-1, Phase 2 planning |
+| Broader Linux distribution matrix. | P0-02 | Use the recorded Omarchy baseline and extend the matrix before Phase 2. | Phase 2 planning |
 
 ## 10. Deliverables and definition of done
 
