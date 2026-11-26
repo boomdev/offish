@@ -44,6 +44,10 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T21 | NFR-02 | `check_editor.py` and `check_codemirror.py`: 50,000-word latency proxies | Recorded |
 | P0-T22 | NFR-04, DOC-01 | `check_workspace_assets.py` and `tauri-codemirror` Rust tests: workspace asset path containment | Pass |
 | P0-T23 | AI-02, NFR-04 | `check_codex_containment.py`: mediated reads/writes, cancellation; optional bubblewrap | Pass (bwrap skipped when user namespaces denied) |
+| P0-T24 | DOC-01, NFR-03 | Native WebKitGTK: nested list and blockquote preview, no-op source, bounded edit | Pass on Omarchy |
+| P0-T25 | CHG-01, NFR-05 | Native WebKitGTK: keyboard reject and accept with labelled controls | Pass on Omarchy |
+| P0-T26 | DOC-01, NFR-05 | Real IME composition, source export and reload | Pending: no composing IME configured in the active Fcitx group |
+| P0-T27 | NFR-01, NFR-02 | Native WebKitGTK: 50,000-word input latency proxy runs (paced and burst, p50/p95) | Recorded; paced clears 50 ms, direct paint remains open |
 
 ## Reproduce the Linux checks
 
@@ -229,10 +233,56 @@ reported the Tauri window as native Wayland (`xwayland: false`).
   or a confirmed bwrap policy on Omarchy before enabling filesystem-capable
   adapters.
 
-The integrated edit–review–restore pilot, external-save conflict, native
-keyboard review, nested structures, IME, screen reader, clipboard, scaling
-and repeatable WebKitGTK latency checks remain pending. Keep P0-03 and P0-06
-in progress.
+### Native WebKitGTK follow-up
+
+On the same Omarchy 4.5.0-3 / Hyprland 0.56.2 / WebKitGTK 2.54.1 reference
+desktop, the repeatable `run_omarchy_webkit.py` driver passed P0-T24 and
+P0-T25. It launched a new native Wayland Tauri process per check and used
+`wtype` for keyboard input. The [nested fixture](fixtures/pilot/nested.md)
+parsed four list items and a blockquote. A no-op load preserved its source;
+a selected text edit changed only that span. The blockquote now displays a
+quote border and hides `>` syntax away from the cursor; the active list line
+still reveals its source marker as designed. A [window capture](evidence/omarchy-webkit-structure.png)
+records the rendered state. Keyboard Enter rejected a proposal without
+changing source, then accepted a fresh proposal with only the selected range
+changed. These are editor-buffer checks, not disk persistence tests.
+
+P0-T27 used three new app processes per mode after the build, with warm OS
+caches and both displays at 60 Hz. Fifty `wtype` keystrokes were sent per
+run, and WebKitGTK produced 50 measured input events in each run. The probe
+waited for input to stop before calculating percentiles.
+
+- Initial spike baseline (burst typing at 20 ms keystroke delay, before
+  removing two O(N) spike shortcuts—prefix UTF-8 re-encoding on every
+  keystroke and a full-tree table walk): input-to-work-and-layout p95 was
+  29 ms in all three runs; input-to-second-frame p95 was 56, 54 and 55 ms
+  (p50 was not saved from that earlier run).
+- After replacing both O(N) paths with an incremental line-byte index and
+  range-bounded table updates:
+  - Paced typing (`--delay-ms 150`, ~6.7 chars/sec): work p50 was 4.0, 4.0
+    and 4.0 ms; work p95 was 26.0, 25.0 and 7.0 ms; second-frame p50 was
+    25.0, 25.0 and 25.0 ms; second-frame p95 was 32.0, 32.0 and 33.0 ms.
+  - Burst typing (`--delay-ms 20`, 50 chars/sec): work p50 was 3.0, 4.0 and
+    4.0 ms; work p95 was 12.0, 27.0 and 30.0 ms; second-frame p50 was 26.0,
+    29.0 and 28.0 ms; second-frame p95 was 32.0, 50.0 and 63.0 ms.
+
+With the O(N) spike bottlenecks removed, paced typing sits at a 4.0 ms work
+median and 32.0–33.0 ms second-frame p95 (right at the 60 Hz two-frame
+floor), clearing the proposed 50 ms budget in all three runs. Occasional
+25–30 ms tail spikes in fresh processes still queue up under 20 ms bursts.
+These numbers remain refresh-quantised proxies on plain paragraphs (without
+dense tables/decorations or Rust IPC) and do not establish direct
+keystroke-to-paint latency. Keep direct paint measurement and broader
+warm/cold sampling open before accepting ADR-0003.
+
+P0-T26 remains pending. Fcitx5 currently has only `keyboard-be` in its active
+group. A temporary attempt to add the already installed Mozc input method
+did not select it; the original Fcitx profile was restored byte-for-byte.
+No synthetic key or composition event was counted as a real IME test.
+
+The integrated edit–review–restore pilot, external-save conflict, real IME,
+screen reader, clipboard, scaling and direct WebKitGTK paint measurement
+remain pending. Keep P0-03 and P0-06 in progress.
 
 ### Reproduce the Tauri CodeMirror host
 
@@ -254,7 +304,7 @@ host=$(mktemp -d)
 cp -R spikes/tauri-codemirror/. "$host/"
 cp "$codemirror_spike/editor.js" "$host/web/editor.js"
 # Cargo.lock is copied with the spike for reproducible builds.
-OFFISH_WORKSPACE="$research/fixtures/pilot" (cd "$host" && cargo run)
+(cd "$host" && OFFISH_WORKSPACE="$research/fixtures/pilot" cargo run --locked)
 ~~~
 
 A successful run shows “Offish CodeMirror ready”. The pilot timeline image
@@ -266,6 +316,23 @@ without a window:
 python -B spikes/check_workspace_assets.py
 cargo test --manifest-path spikes/tauri-codemirror/Cargo.toml
 ~~~
+
+To reproduce P0-T24, P0-T25 and P0-T27 in an active Omarchy Hyprland
+Wayland session with `wtype` installed, bundle the same editor into the
+committed host and run the driver. It opens and closes temporary windows and
+focuses them while typing. Its latency samples are proxies as described
+above.
+
+~~~sh
+cp "$codemirror_spike/editor.js" spikes/tauri-codemirror/web/editor.js
+python3 -B spikes/run_omarchy_webkit.py --latency-runs 3 --delay-ms 150
+python3 -B spikes/run_omarchy_webkit.py --latency-runs 3 --delay-ms 20 --latency-only
+~~~
+
+For P0-T26, configure and activate a real composing IME, then launch with
+`OFFISH_WEBKIT_PROBE=ime` and enter a composed phrase in the focused editor.
+The probe requires `compositionstart` and `compositionend`, a changed source
+buffer and byte-identical reload before it reports PASS.
 
 ## P0-01 · Product and reuse
 
@@ -457,7 +524,7 @@ flowchart LR
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
 | G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
-| G0-2 | CodeMirror opens, renders the workspace timeline image and accepts keyboard input in native WebKitGTK on Omarchy. Validate nested structures, keyboard review, IME and latency in WebKitGTK. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. Real IME composition, direct paint latency, broader accessibility and the WYSIWYG path remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
 | G0-4 | Streaming/interrupt passed; SIWC+Codex app-server is the documented shipping sign-in path. Finish OS sandbox evidence (bwrap/Landlock), late-output cleanup and redaction; keep Cursor sign-in as the fallback. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

@@ -5,7 +5,7 @@
 //! image links resolve through the `workspace:` URI scheme. Path escapes outside
 //! the root return 403.
 
-use http::{header, StatusCode};
+use http::{StatusCode, header};
 use serde::Serialize;
 use std::{
     env, fs,
@@ -22,6 +22,7 @@ struct Boot {
     title: String,
     source: String,
     asset_base: String,
+    probe: Option<String>,
 }
 
 fn default_workspace() -> PathBuf {
@@ -45,14 +46,19 @@ fn resolve_under(root: &Path, relative: &str) -> Result<PathBuf, StatusCode> {
     }
     let requested = Path::new(trimmed);
     if requested.is_absolute()
-        || requested
-            .components()
-            .any(|part| matches!(part, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+        || requested.components().any(|part| {
+            matches!(
+                part,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
     {
         return Err(StatusCode::FORBIDDEN);
     }
     let candidate = root.join(requested);
-    let canonical = candidate.canonicalize().map_err(|_| StatusCode::NOT_FOUND)?;
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     if !canonical.starts_with(root) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -75,7 +81,11 @@ fn mime_for(path: &Path) -> &'static str {
     }
 }
 
-fn response(status: StatusCode, content_type: &str, body: impl Into<Vec<u8>>) -> http::Response<Vec<u8>> {
+fn response(
+    status: StatusCode,
+    content_type: &str,
+    body: impl Into<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
     http::Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, content_type)
@@ -87,21 +97,33 @@ fn response(status: StatusCode, content_type: &str, body: impl Into<Vec<u8>>) ->
 #[tauri::command]
 fn boot(app: tauri::AppHandle) -> Result<Boot, String> {
     let workspace = app.state::<Workspace>().0.clone();
-    let source = fs::read_to_string(workspace.join("brief.md"))
-        .map_err(|error| format!("read brief.md under {}: {error}", workspace.display()))?;
+    let probe = env::var("OFFISH_WEBKIT_PROBE").ok();
+    let filename = if probe.as_deref() == Some("structure") {
+        "nested.md"
+    } else {
+        "brief.md"
+    };
+    let source = fs::read_to_string(workspace.join(filename))
+        .map_err(|error| format!("read {filename} under {}: {error}", workspace.display()))?;
     Ok(Boot {
         title: "Offish CodeMirror ready".into(),
         source,
         // Linux/macOS Origin for custom schemes is scheme://localhost/
         asset_base: "workspace://localhost/".into(),
+        probe,
     })
+}
+
+#[tauri::command]
+fn probe_report(label: String, detail: String) {
+    println!("OFFISH_WEBKIT_PROBE {label}: {detail}");
 }
 
 fn main() {
     let root = workspace_root();
     tauri::Builder::default()
         .manage(Workspace(Arc::new(root.clone())))
-        .invoke_handler(tauri::generate_handler![boot])
+        .invoke_handler(tauri::generate_handler![boot, probe_report])
         .register_uri_scheme_protocol("workspace", move |_ctx, request| {
             let path = request.uri().path();
             match resolve_under(&root, path) {
@@ -109,9 +131,11 @@ fn main() {
                     let body = fs::read(&file).unwrap_or_default();
                     response(StatusCode::OK, mime_for(&file), body)
                 }
-                Err(StatusCode::FORBIDDEN) => {
-                    response(StatusCode::FORBIDDEN, "text/plain", "path outside workspace")
-                }
+                Err(StatusCode::FORBIDDEN) => response(
+                    StatusCode::FORBIDDEN,
+                    "text/plain",
+                    "path outside workspace",
+                ),
                 Err(status) => response(status, "text/plain", status.as_str()),
             }
         })
@@ -123,6 +147,9 @@ fn main() {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_SCRATCH: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
     fn rejects_parent_escape_and_missing() {
@@ -138,12 +165,16 @@ mod tests {
         );
         let allowed = resolve_under(&directory, "/assets/timeline.svg").unwrap();
         assert!(allowed.ends_with("timeline.svg"));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn rejects_symlink_escape() {
         let directory = scratch();
-        let outside = directory.parent().unwrap().join(format!("offish-escape-{}", std::process::id()));
+        let outside = directory
+            .parent()
+            .unwrap()
+            .join(format!("offish-escape-{}", std::process::id()));
         fs::write(&outside, b"no").unwrap();
         std::os::unix::fs::symlink(&outside, directory.join("escape.svg")).unwrap();
         assert_eq!(
@@ -151,11 +182,15 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         let _ = fs::remove_file(outside);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     fn scratch() -> PathBuf {
-        let root = env::temp_dir().join(format!("offish-workspace-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let sequence = NEXT_SCRATCH.fetch_add(1, Ordering::Relaxed);
+        let root = env::temp_dir().join(format!(
+            "offish-workspace-{}-{sequence}",
+            std::process::id()
+        ));
         fs::create_dir_all(root.join("assets")).unwrap();
         root.canonicalize().unwrap()
     }

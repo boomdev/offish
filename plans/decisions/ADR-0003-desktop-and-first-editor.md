@@ -94,6 +94,25 @@ rerun rendered the timeline graphic and changed the window title after a
 keyboard edit in native Wayland WebKitGTK. Remaining interaction and
 latency checks still decide the shell.
 
+A repeatable Omarchy WebKitGTK driver then passed nested-list and blockquote
+source preservation (including exact UTF-8 byte-operation replay) plus
+keyboard accept/reject. On the 50,000-word fixture at 60 Hz, the initial
+20 ms burst spike runs had work p95 of 29 ms and second-frame p95 of
+54–56 ms due to two O(N) spike shortcuts (full-prefix UTF-8 re-encoding and
+full-tree table iteration) plus burst queuing. After replacing both with
+incremental updates, three paced runs (150 ms delay) recorded work p50
+4.0 ms, work p95 7.0–26.0 ms, second-frame p50 25.0 ms and second-frame p95
+32.0–33.0 ms—clearing the 50 ms budget at the 60 Hz two-frame floor. Three
+20 ms burst runs recorded work p50 3.0–4.0 ms, work p95 12.0–30.0 ms,
+second-frame p50 26.0–29.0 ms and second-frame p95 32.0, 50.0 and 63.0 ms
+from occasional tail spikes queuing at 50 chars/sec. These remain
+refresh-quantised proxies, not direct keystroke-to-paint evidence. A real
+IME session is still pending because the active Fcitx group has no composing
+input method; an attempted temporary Mozc selection did not take effect and
+the original profile was restored. Keep this ADR proposed until the real
+IME, direct paint and accessibility evidence and the WYSIWYG path are
+reviewed.
+
 Validate WebViews and screen readers (VoiceOver, NVDA) on macOS and Windows
 before the Phase 2 release, and resolve packaging and installer
 requirements. If WebKitGTK misses essential criteria, evaluate the

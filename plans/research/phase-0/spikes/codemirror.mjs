@@ -2,7 +2,7 @@ import { history, historyKeymap, insertNewline } from "@codemirror/commands";
 import { markdown, commonmarkLanguage } from "@codemirror/lang-markdown";
 import { yamlFrontmatter } from "@codemirror/lang-yaml";
 import { syntaxTree, ensureSyntaxTree } from "@codemirror/language";
-import { EditorState, StateEffect, StateField, RangeSetBuilder, Transaction } from "@codemirror/state";
+import { EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import { Table } from "@lezer/markdown";
 
@@ -14,20 +14,86 @@ const encoder = new TextEncoder();
 // the host can set the base after this module loads.
 const assetBase = () => window.offishAssetBase || "https://offish.invalid/";
 
-// Editor positions count each line break as one unit, whatever its bytes. Byte offsets
-// re-encode the prefix with the file's line break; production code needs a line index.
-const utf8Offset = (state, doc, offset) =>
-    encoder.encode(doc.sliceString(0, offset, state.lineBreak)).length;
+// Track per-line UTF-8 byte lengths incrementally so typing in large documents stays O(1)
+// in document text instead of re-encoding the entire prefix on every keystroke.
+const lineByteLength = (doc, lineNumber, lineBreakBytes) =>
+    encoder.encode(doc.line(lineNumber).text).length + (lineNumber < doc.lines ? lineBreakBytes : 0);
+
+function buildByteIndex(doc, lineBreakBytes) {
+    const lengths = new Uint32Array(doc.lines);
+    const prefix = new Uint32Array(doc.lines + 1);
+    for (let i = 1; i <= doc.lines; i++) {
+        const length = lineByteLength(doc, i, lineBreakBytes);
+        lengths[i - 1] = length;
+        prefix[i] = prefix[i - 1] + length;
+    }
+    return { lineBreakBytes, lengths, prefix };
+}
+
+const byteIndex = StateField.define({
+    create: state => buildByteIndex(state.doc, encoder.encode(state.lineBreak).length),
+    update(value, transaction) {
+        if (!transaction.docChanged) return value;
+        const oldDoc = transaction.startState.doc;
+        const newDoc = transaction.state.doc;
+        const { lineBreakBytes } = value;
+        let firstFromA = Infinity, lastToA = -1, firstFromB = Infinity, lastToB = -1;
+        transaction.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+            if (fromA < firstFromA) firstFromA = fromA;
+            if (toA > lastToA) lastToA = toA;
+            if (fromB < firstFromB) firstFromB = fromB;
+            if (toB > lastToB) lastToB = toB;
+        });
+        if (firstFromA === Infinity) return value;
+        const startLine = oldDoc.lineAt(firstFromA).number;
+        const endLineA = oldDoc.lineAt(lastToA).number;
+        const endLineB = newDoc.lineAt(lastToB).number;
+        const lengths = new Uint32Array(newDoc.lines);
+        lengths.set(value.lengths.subarray(0, startLine - 1), 0);
+        for (let i = startLine; i <= endLineB; i++) {
+            lengths[i - 1] = lineByteLength(newDoc, i, lineBreakBytes);
+        }
+        if (endLineA < oldDoc.lines) {
+            lengths.set(value.lengths.subarray(endLineA), endLineB);
+        }
+        const prefix = new Uint32Array(newDoc.lines + 1);
+        prefix.set(value.prefix.subarray(0, startLine), 0);
+        for (let i = startLine - 1; i < newDoc.lines; i++) {
+            prefix[i + 1] = prefix[i] + lengths[i];
+        }
+        return { lineBreakBytes, lengths, prefix };
+    },
+});
+
+function utf8Offset(state, offset) {
+    const index = state.field(byteIndex);
+    const line = state.doc.lineAt(offset);
+    const column = offset - line.from;
+    return index.prefix[line.number - 1] + (column ? encoder.encode(line.text.slice(0, column)).length : 0);
+}
 
 function utf16Offset(state, bytes) {
-    const { doc } = state;
-    let low = 0, high = doc.length;
+    const index = state.field(byteIndex);
+    const total = index.prefix[state.doc.lines];
+    if (bytes < 0 || bytes > total) throw new Error("Byte offset is out of bounds");
+    if (bytes === total) return state.doc.length;
+    let low = 1, high = state.doc.lines;
     while (low < high) {
-        const middle = (low + high) >> 1;
-        if (utf8Offset(state, doc, middle) < bytes) low = middle + 1; else high = middle;
+        const middle = (low + high + 1) >> 1;
+        if (index.prefix[middle - 1] <= bytes) low = middle; else high = middle - 1;
     }
-    if (utf8Offset(state, doc, low) !== bytes) throw new Error("Byte offset is not on a character boundary");
-    return low;
+    const line = state.doc.line(low);
+    const target = bytes - index.prefix[low - 1];
+    let columnLow = 0, columnHigh = line.length;
+    while (columnLow < columnHigh) {
+        const middle = (columnLow + columnHigh) >> 1;
+        if (encoder.encode(line.text.slice(0, middle)).length < target) columnLow = middle + 1;
+        else columnHigh = middle;
+    }
+    if (encoder.encode(line.text.slice(0, columnLow)).length !== target) {
+        throw new Error("Byte offset is not on a character boundary");
+    }
+    return line.from + columnLow;
 }
 
 function lineEnding(source) {
@@ -176,6 +242,12 @@ const inlinePreview = ViewPlugin.fromClass(class {
                         ranges.push(Decoration.replace({}).range(node.from, after));
                     }
                     return false;
+                case "StrongEmphasis":
+                    ranges.push(Decoration.mark({ class: "cm-strong" }).range(node.from, node.to));
+                    return true;
+                case "Emphasis":
+                    ranges.push(Decoration.mark({ class: "cm-emphasis" }).range(node.from, node.to));
+                    return true;
                 case "EmphasisMark": case "LinkMark":
                     if (!active) ranges.push(Decoration.replace({}).range(node.from, node.to));
                     return false;
@@ -191,6 +263,13 @@ const inlinePreview = ViewPlugin.fromClass(class {
                     if (!active) {
                         const after = state.sliceDoc(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
                         ranges.push(Decoration.replace({ widget: new BulletWidget() }).range(node.from, after));
+                    }
+                    return false;
+                case "QuoteMark":
+                    ranges.push(Decoration.line({ class: "cm-blockquote" }).range(line.from));
+                    if (!active) {
+                        const after = state.sliceDoc(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
+                        ranges.push(Decoration.replace({}).range(node.from, after));
                     }
                     return false;
                 case "Image":
@@ -211,33 +290,103 @@ const inlinePreview = ViewPlugin.fromClass(class {
     }
 }, { decorations: plugin => plugin.decorations });
 
-// Block widgets that replace line breaks must come from state.
-const tablePreview = StateField.define({
-    create: state => buildTables(state),
-    update(value, transaction) {
-        if (transaction.docChanged || transaction.selection ||
-            syntaxTree(transaction.startState) !== syntaxTree(transaction.state)) {
-            return buildTables(transaction.state);
+function enclosingTable(tree, pos) {
+    for (const side of [0, -1]) {
+        for (let node = tree.resolveInner(pos, side); node; node = node.parent) {
+            if (node.name === "Table") return node;
         }
-        return value;
-    },
-    provide: field => EditorView.decorations.from(field),
-});
+    }
+    return null;
+}
 
-function buildTables(state) {
-    const builder = new RangeSetBuilder();
-    // Front matter support mounts the Markdown tree inside a wrapper, so walk the whole tree.
-    syntaxTree(state).iterate({ enter: node => {
+function tableDecorationsIn(state, from, to) {
+    const ranges = [];
+    syntaxTree(state).iterate({ from, to, enter: node => {
         if (node.name !== "Table") return !["Paragraph", "Frontmatter", "CommentBlock"].includes(node.name);
         if (!touchesSelection(state, node.from, node.to)) {
-            builder.add(node.from, node.to, Decoration.replace({
+            ranges.push(Decoration.replace({
                 widget: new TableWidget(tableRows(state, node.node), node.from), block: true,
-            }));
+            }).range(node.from, node.to));
         }
         return false;
     } });
-    return builder.finish();
+    return ranges;
 }
+
+// Block widgets that replace line breaks must come from state. Map existing decorations
+// across edits and inspect only changed, selected, and newly parsed ranges.
+const tablePreview = StateField.define({
+    create(state) {
+        const tree = syntaxTree(state);
+        return {
+            decorations: Decoration.set(tableDecorationsIn(state, 0, tree.length), true),
+            parsedUpTo: tree.length,
+        };
+    },
+    update(value, transaction) {
+        const oldTree = syntaxTree(transaction.startState);
+        const newTree = syntaxTree(transaction.state);
+        if (!transaction.docChanged && !transaction.selection && oldTree === newTree) return value;
+
+        let decorations = transaction.docChanged ? value.decorations.map(transaction.changes) : value.decorations;
+        const { state } = transaction;
+        const dirty = [];
+        const addDirty = (from, to) => {
+            const start = Math.max(0, from);
+            const end = Math.min(state.doc.length, to);
+            const startTable = enclosingTable(newTree, start);
+            const endTable = enclosingTable(newTree, end);
+            dirty.push([
+                Math.min(start, startTable ? startTable.from : start),
+                Math.max(end, endTable ? endTable.to : end),
+            ]);
+        };
+
+        if (transaction.docChanged) {
+            transaction.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+                const startLine = Math.max(1, state.doc.lineAt(fromB).number - 1);
+                const endLine = Math.min(state.doc.lines, state.doc.lineAt(toB).number + 1);
+                addDirty(state.doc.line(startLine).from, state.doc.line(endLine).to);
+            });
+        }
+        if (transaction.selection || transaction.docChanged) {
+            for (const range of transaction.startState.selection.ranges) {
+                addDirty(transaction.changes.mapPos(range.from, -1), transaction.changes.mapPos(range.to, 1));
+            }
+            for (const range of state.selection.ranges) {
+                addDirty(range.from, range.to);
+            }
+        }
+        if (newTree.length > value.parsedUpTo) {
+            addDirty(value.parsedUpTo, newTree.length);
+        }
+        if (!dirty.length) return { decorations, parsedUpTo: newTree.length };
+
+        dirty.sort((a, b) => a[0] - b[0]);
+        const merged = [];
+        for (const span of dirty) {
+            if (!merged.length || span[0] > merged[merged.length - 1][1]) merged.push(span);
+            else if (span[1] > merged[merged.length - 1][1]) merged[merged.length - 1][1] = span[1];
+        }
+
+        const add = [];
+        let needsFilter = false;
+        for (const [from, to] of merged) {
+            decorations.between(from, to, () => { needsFilter = true; return false; });
+            add.push(...tableDecorationsIn(state, from, to));
+        }
+        if (needsFilter || add.length) {
+            const overlapsDirty = (from, to) => merged.some(([lo, hi]) => from <= hi && to >= lo);
+            decorations = decorations.update({
+                filter: (from, to) => !overlapsDirty(from, to),
+                add,
+                sort: true,
+            });
+        }
+        return { decorations, parsedUpTo: newTree.length };
+    },
+    provide: field => EditorView.decorations.from(field, value => value.decorations),
+});
 
 const setProposal = StateEffect.define();
 const proposalField = StateField.define({
@@ -264,6 +413,9 @@ const theme = EditorView.baseTheme({
     ".ATXHeading1": { fontSize: "1.6em" },
     ".ATXHeading2": { fontSize: "1.3em" },
     ".cm-link": { color: "#1a5fb4", textDecoration: "underline" },
+    ".cm-strong": { fontWeight: "bold" },
+    ".cm-emphasis": { fontStyle: "italic" },
+    ".cm-blockquote": { borderLeft: "2px solid #999", paddingLeft: "8px" },
     "del": { background: "#fdd", textDecoration: "line-through" },
     "ins": { background: "#dfd", textDecoration: "underline" },
     ".cm-sr-only": { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)" },
@@ -273,7 +425,7 @@ const theme = EditorView.baseTheme({
 function createView(parent, source, { label, separator, preview = true }) {
     const operations = [];
     const extensions = [
-        language, theme, proposalField, normaliseInput, history(),
+        language, theme, byteIndex, proposalField, normaliseInput, history(),
         keymap.of([{ key: "Enter", run: insertNewline }, ...historyKeymap]),
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.updateListener.of(update => {
@@ -281,8 +433,8 @@ function createView(parent, source, { label, separator, preview = true }) {
             // Typed operations against the previous revision, in UTF-8 bytes.
             update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
                 operations.push({
-                    start: utf8Offset(update.startState, update.startState.doc, fromA),
-                    end: utf8Offset(update.startState, update.startState.doc, toA),
+                    start: utf8Offset(update.startState, fromA),
+                    end: utf8Offset(update.startState, toA),
                     replacement: inserted.sliceString(0, inserted.length, update.state.lineBreak),
                 });
             });

@@ -47,6 +47,24 @@ For UI use the same tabbed editor, keyboard review, IME, screen reader and large
 
 Start P0-01 and source/license discovery early. Run format and UI feasibility together once common fixtures exist. Iterate P0-04, P0-05 and P0-06 on draft contracts before locking decisions.
 
+### P0-03 Omarchy WebKitGTK follow-up
+
+| Task | Requirements | Acceptance evidence |
+| --- | --- | --- |
+| P0-03a · Structured Markdown | DOC-01, NFR-03 | P0-T24: in the embedded WebKitGTK editor, nested lists and blockquotes render without losing source bytes; a bounded edit leaves unrelated source unchanged. |
+| P0-03b · Keyboard review | CHG-01, NFR-05 | P0-T25: with real keyboard input on Omarchy, focus reaches labelled accept and reject controls; rejection preserves source, acceptance changes only the selected range. |
+| P0-03c · Composition | DOC-01, NFR-05 | P0-T26: record a real IME composition session and confirm committed Unicode text survives source export and a reload. Synthetic event dispatch alone does not satisfy this check. |
+| P0-03d · Embedded latency | NFR-01, NFR-02 | P0-T27: repeat the 50,000-word input proxy in WebKitGTK, record p50/p95, display refresh, warm/cold state and limitations against the 50 ms target. |
+
+Keep these as spike checks. Record their commands, exact environment, pass/fail results and remaining risks in the Phase 0 evidence before changing ADR-0003's status.
+
+Omarchy follow-up status (26 November 2026): P0-T24 and P0-T25 pass. P0-T27
+records p50 and p95 across paced (150 ms) and burst (20 ms) runs after
+removing O(N) spike shortcuts; paced runs clear 50 ms (work p50 4.0 ms,
+second-frame p95 32.0–33.0 ms), while direct keystroke-to-paint evidence
+remains open. P0-T26 is pending because the active Fcitx group has no
+composing IME.
+
 ## 7. Testing strategy
 
 - Run file and conflict exercises on local Linux filesystems first, including the Omarchy desktop. Include dropped watch events, case changes, unreadable paths, stale proposals, disk-full simulations, interruption, symlink escapes, and external changes during review. Repeat representative cases on a supported synced folder where available. Repeat on macOS and Windows for the Phase 2 gate.
@@ -90,7 +108,7 @@ Put research results and benchmark references in `plans/research/` and decisions
 | --- | --- | --- | --- |
 | P0-01 | ED-01, CHG-01, EXT-01 | In progress | Pilot audience and Omarchy desktop confirmed. A synthetic scenario and ecosystem comparison are available. Early adopter count, operating systems, and walkthroughs are pending. |
 | P0-02 | NFR-01–06 | In progress | Pilot fixtures, Debian cloud baseline, initial budgets and pinned Python spike requirements are available. Physical Omarchy hardware baseline recorded on 26 November 2026. Cargo lockfiles are pending. macOS/Windows environments are needed before the Phase 2 gate. |
-| P0-03 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | In progress | Iced native text-widget check run on Linux. CodeMirror 6 live preview and ProseMirror compared on the pilot fixture in Chromium (P0-T11, P0-T16–T21); CodeMirror is the proposed MVP editor in ADR-0003. Tauri/ProseMirror and CodeMirror opened in native Wayland WebKitGTK on Omarchy. The committed `tauri-codemirror` host rendered the workspace timeline image and accepted keyboard input; workspace asset path tests pass (P0-T22). WebKitGTK latency, nested structures, keyboard review, IME and screen reader checks remain open. Bundled-Chromium shell not yet run. |
+| P0-03 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | In progress | Iced native text-widget check run on Linux. CodeMirror 6 live preview and ProseMirror compared in Chromium (P0-T11, P0-T16–T21). CodeMirror is the proposed MVP editor in ADR-0003. The committed Tauri host rendered the workspace image in native Wayland WebKitGTK; asset path checks passed (P0-T22). Nested Markdown and keyboard review passed in WebKitGTK (P0-T24–T25). Embedded latency proxy runs recorded with p50/p95 after removing O(N) spike shortcuts (P0-T27): paced (150 ms) work p50 4.0 ms, p95 7.0–26.0 ms, second-frame p50 25.0 ms, p95 32.0–33.0 ms; burst (20 ms) work p50 3.0–4.0 ms, p95 12.0–30.0 ms, second-frame p50 26.0–29.0 ms, p95 32.0–63.0 ms. Real IME, direct paint latency and screen reader checks remain open. Bundled-Chromium shell not yet run. |
 | P0-04 | DOC-01, IO-01, WS-02, NFR-03 | In progress | Rust source-span, ProseMirror and CodeMirror probes preserved unchanged fixture bytes. The CodeMirror probe handled front matter, CRLF, mixed endings, a BOM and a table cell edit. Offish Markdown profile document, nested structures and the authoritative parser for structural modes pending. |
 | P0-05 | WS-01–03, CHG-01–02, GIT-01, SYNC-01 | In progress | Linux single-span proposal/recovery, Git status, and file search probes run. Hunks, partial acceptance, checkpoint history and concurrent-writer guarantees pending. |
 | P0-06 | AI-01–02, NFR-04 | In progress | Signed-in Omarchy Codex trial passed streaming and interruption (P0-T13). OpenAI SIWC + Codex app-server is the documented shipping sign-in path. Host mediation checks added (P0-T23). OS sandbox (bwrap/Landlock), late output and redaction remain. Cursor sign-in is the fallback. |
