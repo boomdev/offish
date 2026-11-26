@@ -48,14 +48,21 @@ Use typed operations with staged output and a private checkpoint journal.
 | Matches postimage | Offer the checkpoint and restore only after another revision check. |
 | Differs from both | Preserve on-disk bytes and checkpoint. Offer conflict resolution. |
 
-Open design items to settle before acceptance:
+Checkpoint history and undo, settled for the MVP:
 
-- **Checkpoint history.** Each acceptance creates a checkpoint. Define how
-  many are retained, where they live, how they are deleted, and how restoring
-  an older checkpoint treats later accepted and manual edits.
-- **Undo.** Define whether editor undo can cross an acceptance, and how undo
-  history and checkpoints are presented so users are not offered two
-  conflicting ways to go back.
+- **Checkpoint history.** Each acceptance appends a private checkpoint outside
+  the content tree. Keep the latest 20 per document; creating another drops
+  the oldest. Deleting a checkpoint removes that restore point and does not
+  change the file or break revision continuity for other restore points.
+  Each checkpoint has a stable ID. Restore requires the file to match the
+  latest recorded revision and the checkpoint to belong to its uninterrupted
+  revision chain. Restoring returns the file to that checkpoint's preimage
+  and discards it and every newer checkpoint. A detected manual edit breaks
+  the chain and keeps the edited bytes.
+- **Undo.** Editor undo does not cross an acceptance. Acceptance seals the
+  undo stack; the control for going back across that boundary is checkpoint
+  restore, which checks the file revision first. This avoids a buffer-only
+  undo that diverges from the accepted file.
 
 ## Consequences
 
@@ -72,16 +79,18 @@ Open design items to settle before acceptance:
 
 ## Validation and reconsideration
 
-The Linux spike passed a process exit after journaling (before replacement),
-an injected ENOSPC during replacement, stale proposal rejection and restore
-conflict checks. It models one span per proposal and one outstanding
-checkpoint. In the CodeMirror editor spike, editor undo reverted an accepted
-proposal in the buffer while the accepted file stayed unchanged, which
-confirms that the undo design item needs a decision. [Evidence and reproduction](../research/phase-0/README.md) cover
-only a small Linux fixture on overlayfs. Before accepting, extend the spike to
-several hunks with partial acceptance and a checkpoint history, and verify
-directory durability and metadata preservation on real local volumes,
-concurrent writers, symlinks, dropped watch events and restart behavior on
-Omarchy. Open-handle behavior on Windows and macOS replacement are Phase 2
-release gates. Defer journal format and multi-file apply decisions until
-those tests define the guarantees.
+On Omarchy Btrfs the spike recovered after process exit before and after
+replacement, including an interrupted restore. It retained conflict bytes
+after an injected journal finalization failure. The tests also verified
+partial hunk rebase, 20 distinct retained checkpoints across restart,
+deletion without breaking the revision chain, and preservation of file
+mode bits. The CodeMirror Chromium check verified that undo stops at
+acceptance and still works for later edits (P0-T29).
+[Evidence and reproduction](../research/phase-0/README.md)
+
+Before accepting, verify power-loss durability, ownership, ACLs and other
+file metadata, coordination across processes and external writers, symlinks,
+and dropped watch events on Omarchy.
+Open-handle behavior on Windows and macOS replacement are Phase 2 release
+gates. Defer the on-disk journal format and multi-file apply until those
+tests define the guarantees.

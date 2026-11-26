@@ -49,6 +49,7 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T26 | DOC-01, NFR-05 | Real IME composition, source export and reload | Pending: no composing IME configured in the active Fcitx group |
 | P0-T27 | NFR-01, NFR-02 | Native WebKitGTK: 50,000-word input latency proxy runs (paced and burst, p50/p95) | Recorded; paced clears 50 ms, direct paint remains open |
 | P0-T28 | AI-01, AI-02, NFR-04 | `check_codex_containment.py --live`: real `codex app-server` inside `bwrap` (canary isolation, 0 direct writes, active-stream interrupt, process cleanup, audit redaction) | Pass on Omarchy (P0-T28a–T28d) |
+| P0-T29 | WS-02, CHG-01, NFR-03 | `check_proposals.py` and `check_codemirror.py`: hunk rebase, durable checkpoint lifecycle, file modes and editor undo | Pass on Omarchy Btrfs and Chromium |
 
 ## Reproduce the Linux checks
 
@@ -426,8 +427,9 @@ Findings:
   is configured from the file. With a CRLF separator, a browser-handled Enter
   inserted a bare LF and produced mixed endings. Binding Enter to
   `insertNewline` and normalising typed or pasted line breaks fixed it.
-- Editor undo reverted an accepted proposal in the buffer while the accepted
-  file stayed unchanged. ADR-0002 must define undo across acceptance.
+- Acceptance resets CodeMirror undo and redo history. The Chromium test
+  verifies that undo still works for subsequent edits and stops at accepted
+  bytes. Checkpoint restore checks the file revision before replacing it.
 - The original latency proxy, two animation frames after input, is bounded by
   the 60 Hz display refresh (about 33 ms) and cannot separate editors. The
   work-and-layout proxy ends after pending tasks and a forced layout. Both are
@@ -443,6 +445,17 @@ The earlier run in the Debian environment gave p50 30.5 ms and p95 31.6 ms
 for ProseMirror on the frame-bounded proxy.
 
 ## P0-05 · Workspace and proposal guarantees
+
+P0-T29 passed all 18 proposal tests on Omarchy Btrfs with
+`TMPDIR="$PWD" python3 -B spikes/check_proposals.py` from this research
+directory. The journal survives process restart, keeps unique IDs after
+pruning, and retains the revision chain when a restore point is deleted.
+Tests cover exits before and after replacement, interrupted restore,
+external divergence after a failed final journal write, and document and
+journal mode bits. The CodeMirror Chromium check passed the undo regression.
+The spike uses one private directory per document. Power loss, ownership,
+ACLs, extended attributes, symlinks, and concurrent writers need further
+evidence.
 
 The eight Linux tests covered review isolation, rejection, exact restore,
 stale detection, an actual child exit after journaling, simulated ENOSPC,
@@ -544,6 +557,6 @@ flowchart LR
 | --- | --- | --- |
 | G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
 | G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. Real IME composition, direct paint latency, broader accessibility and the WYSIWYG path remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
-| G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
+| G0-3 | Hunk rebase, checkpoint restart recovery, modes and editor undo pass on Omarchy (P0-T29). Power-loss durability, full metadata, concurrent writers, symlinks and dropped watch events remain open. | P0-05 |
 | G0-4 | Omarchy evidence complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). Ready for ADR-0005 review; SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

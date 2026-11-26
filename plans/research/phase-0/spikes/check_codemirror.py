@@ -163,21 +163,25 @@ def check_review(page, editor, source):
         accept(working, journal, proposal)
         assert working.read_bytes() == preview
 
-        # Editor undo crosses the acceptance and leaves the buffer behind the accepted file.
         page.get_by_role("textbox", name="Pilot brief").focus()
         page.keyboard.press("Control+z")
-        assert page.evaluate("e => e.source()", editor) == source
-        assert working.read_bytes() == preview
         page.keyboard.press("Control+y")
+        assert page.evaluate("e => e.source()", editor).encode() == working.read_bytes() == preview
+        assert not page.evaluate("e => e.operations()", editor)
+
+        page.evaluate("e => e.select('Notes use', 0, true)", editor)
+        page.keyboard.insert_text(" extra")
+        assert page.evaluate("e => e.source()", editor).encode() != preview
+        page.keyboard.press("Control+z")
+        assert page.evaluate("e => e.source()", editor).encode() == working.read_bytes() == preview
+        page.keyboard.press("Control+z")
         assert page.evaluate("e => e.source()", editor).encode() == preview
-        page.evaluate("e => e.operations()", editor)
 
         restore(working, journal)
         assert working.read_bytes() == data
     print("PASS P0-T20: inline labelled removal and addition, keyboard reject and accept, "
           "stale proposal refused after a concurrent edit, exact restore")
-    print("OBSERVED: editor undo reverts an accepted proposal in the buffer only; "
-          "ADR-0002 must define undo across acceptance")
+    print("PASS P0-T29: CodeMirror undo stops at acceptance and still undoes later edits")
 
 
 def check_latency(context, bundle):

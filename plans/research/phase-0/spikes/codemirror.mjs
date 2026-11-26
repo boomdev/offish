@@ -2,7 +2,7 @@ import { history, historyKeymap, insertNewline } from "@codemirror/commands";
 import { markdown, commonmarkLanguage } from "@codemirror/lang-markdown";
 import { yamlFrontmatter } from "@codemirror/lang-yaml";
 import { syntaxTree, ensureSyntaxTree } from "@codemirror/language";
-import { EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import { Table } from "@lezer/markdown";
 
@@ -424,8 +424,9 @@ const theme = EditorView.baseTheme({
 
 function createView(parent, source, { label, separator, preview = true }) {
     const operations = [];
+    const historySlot = new Compartment();
     const extensions = [
-        language, theme, byteIndex, proposalField, normaliseInput, history(),
+        language, theme, byteIndex, proposalField, normaliseInput, historySlot.of(history()),
         keymap.of([{ key: "Enter", run: insertNewline }, ...historyKeymap]),
         EditorView.contentAttributes.of({ "aria-label": label }),
         EditorView.updateListener.of(update => {
@@ -443,7 +444,7 @@ function createView(parent, source, { label, separator, preview = true }) {
     if (preview) extensions.push(inlinePreview, tablePreview);
     if (separator !== undefined) extensions.push(EditorState.lineSeparator.of(separator));
     const view = new EditorView({ parent, state: EditorState.create({ doc: source, extensions }) });
-    return { view, operations };
+    return { view, operations, historySlot };
 }
 
 window.lineEndingCheck = (sources) => sources.map(source => {
@@ -461,7 +462,7 @@ window.lineEndingCheck = (sources) => sources.map(source => {
 
 window.mountDocument = (source) => {
     const main = document.querySelector("main");
-    const { view, operations } = createView(main, source, {
+    const { view, operations, historySlot } = createView(main, source, {
         label: "Pilot brief", separator: lineEnding(source),
     });
     ensureSyntaxTree(view.state, view.state.doc.length, 5000);
@@ -520,9 +521,16 @@ window.mountDocument = (source) => {
                         window.reviewAction = "stale";
                         return;
                     }
-                    const changes = action === "accept"
-                        ? { from: proposal.from, to: proposal.to, insert: proposal.replacement } : [];
-                    view.dispatch({ changes, effects: setProposal.of(null) });
+                    if (action === "accept") {
+                        // Remove the history field to clear both undo and redo at acceptance.
+                        view.dispatch({
+                            changes: { from: proposal.from, to: proposal.to, insert: proposal.replacement },
+                            effects: [setProposal.of(null), historySlot.reconfigure([])],
+                        });
+                        view.dispatch({ effects: historySlot.reconfigure(history()) });
+                    } else {
+                        view.dispatch({ effects: setProposal.of(null) });
+                    }
                     status.textContent = action === "accept" ? "Proposal accepted" : "Proposal rejected";
                     window.reviewAction = action;
                 });
