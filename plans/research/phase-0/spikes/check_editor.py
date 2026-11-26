@@ -46,11 +46,11 @@ def exercise_review(page, visual_edit):
 
 
 
-def run(bundle):
+def run(bundle, chromium=None):
     source = (FIXTURE / "brief.md").read_text()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            executable_path="/usr/bin/chromium", args=["--no-sandbox", "--disable-background-networking"]
+            executable_path=chromium, args=["--no-sandbox", "--disable-background-networking"]
         )
         context = browser.new_context(offline=True)
         page = context.new_page()
@@ -113,4 +113,6 @@ def run(bundle):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("bundle", type=Path)
-    run(parser.parse_args().bundle.resolve())
+    parser.add_argument("--chromium", help="Chromium executable; defaults to Playwright's browser")
+    arguments = parser.parse_args()
+    run(arguments.bundle.resolve(), arguments.chromium)
