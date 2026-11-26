@@ -1,6 +1,7 @@
 """Generate synthetic DOCX/PDF samples and evaluate local conversion baselines."""
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import os
 import subprocess
 
 from docx import Document
@@ -18,11 +19,28 @@ WORDS = (
     "The pilot has five seats.",
     "The budget is 3,200 dollars.",
 )
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
 def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+
+def fixture_font():
+    path = os.environ.get("OFFISH_FIXTURE_FONT")
+    if not path:
+        try:
+            match = run("fc-match", "--format", r"%{family}\n%{file}\n", "DejaVu Sans")
+            families, path = match.splitlines()
+        except (OSError, subprocess.CalledProcessError, ValueError):
+            families, path = "", ""
+        if "DejaVu Sans" not in families.split(",") or not path:
+            raise SystemExit(
+                "Install Fontconfig and DejaVu Sans, or set OFFISH_FIXTURE_FONT to a font file."
+            )
+    try:
+        return ImageFont.truetype(str(Path(path).expanduser().resolve()), 40)
+    except OSError as error:
+        raise SystemExit(f"Cannot load fixture font {path!r}: {error}") from error
 
 
 def normalise(text):
@@ -117,13 +135,14 @@ def check_pdf(root, image):
 
 
 if __name__ == "__main__":
+    font = fixture_font()
     with TemporaryDirectory() as directory:
         root = Path(directory)
         image = root / "scan-source.png"
         scan = Image.new("RGB", (1200, 263), "white")
         draw = ImageDraw.Draw(scan)
         for index, line in enumerate(WORDS):
-            draw.text((80, 50 + index * 64), line, fill="black", font=ImageFont.truetype(FONT, 40))
+            draw.text((80, 50 + index * 64), line, fill="black", font=font)
         scan.save(image)
         check_word(root, image)
         check_pdf(root, image)

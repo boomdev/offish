@@ -65,9 +65,11 @@ Cargo lockfiles are not yet committed for the Rust spikes, so transitive
 crate versions can drift between runs.
 
 The interoperability scripts use Pandoc 3.1.11.1, Poppler 25.03.0, and
-Tesseract 5.5.0 with English data and a DejaVu Sans font. Python dependencies
-used were python-docx 1.2.0, Pillow 13.0.0, pypdf 6.21.4, reportlab 4.4.9,
-python-pptx 1.0.2, and PyYAML 6.0.3. Generated fixture documents are synthetic
+Tesseract 5.5.0 with English (`eng`) data. The spike uses both Poppler tools
+(`pdftotext` and `pdftoppm`) and finds DejaVu Sans through Fontconfig. Set
+`OFFISH_FIXTURE_FONT` to an absolute font file path to override discovery.
+Python dependencies used were python-docx 1.2.0, Pillow 13.0.0, pypdf 6.21.4,
+reportlab 4.4.9, python-pptx 1.0.2, and PyYAML 6.0.3. Generated fixture documents are synthetic
 and temporary. Run Python tests on Linux for the current fork/directory sync
 exercise.
 
