@@ -1,0 +1,11 @@
+[package]
+name = "offish-iced-spike"
+version = "0.0.0"
+edition = "2024"
+
+[[bin]]
+name = "offish-iced-spike"
+path = "main.rs"
+
+[dependencies]
+iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "x11", "thread-pool"] }

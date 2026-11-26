@@ -4,7 +4,7 @@ The [master plan](MASTER_PLAN.md) defines the product, requirements, architectur
 
 | Location | Purpose |
 | --- | --- |
-| [research/](research/) | Source-backed findings, fixtures, benchmarks, and unresolved evidence |
+| [research/](research/) | Source-backed findings, fixtures, benchmarks, and unresolved evidence. See the [Phase 0 report](research/phase-0/README.md). |
 | [decisions/](decisions/) | Proposed, accepted, and superseded architecture decisions |
 | [Phase 0](phases/00-research-and-architecture/PLAN.md) | Research and architecture |
 | [Phase 1](phases/01-core-workspace/) | Core workspace |

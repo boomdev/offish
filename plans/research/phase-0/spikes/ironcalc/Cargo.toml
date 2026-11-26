@@ -1,0 +1,11 @@
+[package]
+name = "offish-ironcalc-spike"
+version = "0.0.0"
+edition = "2024"
+
+[[bin]]
+name = "offish-ironcalc-spike"
+path = "main.rs"
+
+[dependencies]
+ironcalc_base = "=0.9.1"

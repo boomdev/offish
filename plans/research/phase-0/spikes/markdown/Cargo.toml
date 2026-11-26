@@ -1,0 +1,11 @@
+[package]
+name = "offish-markdown-spike"
+version = "0.0.0"
+edition = "2024"
+
+[[bin]]
+name = "offish-markdown-spike"
+path = "main.rs"
+
+[dependencies]
+pulldown-cmark = "=0.13.0"

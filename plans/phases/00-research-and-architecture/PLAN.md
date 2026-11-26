@@ -1,7 +1,7 @@
 # Phase 0 — Research and architecture
 
-Status: Draft · Owner: TBD\
-[Master plan](../../MASTER_PLAN.md) · [Initial technology assessment](../../research/INITIAL_TECHNOLOGY_ASSESSMENT.md)
+Status: In progress · Owner: TBD\
+[Master plan](../../MASTER_PLAN.md) · [Initial technology assessment](../../research/INITIAL_TECHNOLOGY_ASSESSMENT.md) · [Phase 0 evidence](../../research/phase-0/README.md)
 
 ## 1. Objectives
 
@@ -13,12 +13,12 @@ Competitive and ecosystem study, UI/editor comparison, native format and calcula
 
 ## 3. Out of scope
 
-Production application, complete editors, production installer, cloud service, complete converter coverage, and implementation plans for Phases 2–7. This initial planning assignment ends with the written Phase 0 plan. Spikes are future Phase 0 work.
+Production application, complete editors, production installer, cloud service, complete converter coverage, and implementation plans for Phases 2–7. Build spikes outside the application tree and keep reusable inputs and probes in the research folder.
 
 ## 4. Prerequisites and dependencies
 
-- Run the pilot with the project maintainer and early adopters. Use MIT as the intended project license.
-- Identify test machines or CI images for the latest stable Windows, macOS, and selected Linux distributions. Record exact versions and baseline hardware.
+- Run the pilot with the project maintainer and early adopters. Use [MIT](../../../LICENSE) for Offish.
+- Use Omarchy (Arch Linux, Hyprland/Wayland) for the first hands-on maintainer pilot. Record the actual Omarchy, Hyprland, WebKitGTK and kernel versions and baseline hardware. Identify test machines or CI images for the latest stable Windows, macOS, and remaining Linux coverage.
 - Prioritise Codex, Cursor, and Claude trials. Verify the supported integration and authentication options for each available account before attempting a live trial.
 - Use synthetic or redistribution-cleared fixtures. Define review criteria before collecting results. Maintain a capability matrix and update the source notes when versions or licensing evidence change.
 - Establish containment before live workspace access in an agent spike. Use fixture data and stub adapters first.
@@ -78,8 +78,12 @@ Put research results and benchmark references in `plans/research/` and decisions
 
 | Task | Status | Evidence |
 | --- | --- | --- |
-| P0-01 | Started | Master plan and candidate ecosystem inventory drafted. Pilot evidence pending. |
-| P0-02 | Planned | Hardware and fixtures pending. |
-| P0-03–07 | Planned | Initial source notes available. Evaluation and tests pending. |
-| P0-08 | Planned | Repository metadata collected. Distribution and dependency audit pending. |
-| P0-09 | Planned | Initial boundaries proposed in master plan. No ADR accepted. |
+| P0-01 | In progress | Pilot audience and Omarchy desktop confirmed. A synthetic scenario and ecosystem comparison are available. Maintainer and early adopter walkthroughs are pending. |
+| P0-02 | In progress | Pilot fixtures, Debian cloud baseline, and initial budgets are available. Physical Omarchy hardware baseline and macOS/Windows validation environments are pending. |
+| P0-03 | In progress | Iced native text-widget and Chromium ProseMirror checks run on Linux. Tauri host compiled. Omarchy Wayland WebKitGTK runtime and accessibility validation remain open. |
+| P0-04 | In progress | Rust source-span and Chromium visual edit probes preserved unchanged fixture bytes. Broader structure and offset coverage pending. |
+| P0-05 | In progress | Linux proposal/recovery, Git status, and file search probes run. Other platform and concurrent-writer guarantees pending. |
+| P0-06 | In progress | Provider documentation and stub checks available. The installed Codex app server starts but the live request was rejected as unauthorised. Cursor and Claude account trials pending. |
+| P0-07 | In progress | Word, PDF, OCR, dense/sparse storage, sample calculations and slide geometry probes run. PDF reading order and broader format validation pending. |
+| P0-08 | In progress | MIT project license adopted. Candidate component licenses recorded. Package-level transitive audit pending stack selection. |
+| P0-09 | In progress | Proposed foundation ADRs and accepted license ADR recorded. Release gates and Phase 1 handoff remain open. |

@@ -1,0 +1,10 @@
+[package]
+name = "offish-tauri-spike"
+version = "0.0.0"
+edition = "2024"
+
+[build-dependencies]
+tauri-build = "=2.7.6"
+
+[dependencies]
+tauri = "=2.12.7"
