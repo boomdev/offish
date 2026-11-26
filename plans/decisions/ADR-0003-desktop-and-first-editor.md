@@ -1,8 +1,8 @@
 # ADR-0003 — Evaluate a Rust host with a WebView editor first
 
-Status: Proposed\
+Status: Accepted\
 Date: 2026-11-26\
-Owner and reviewers: Project maintainer; reviewers TBD\
+Owner and reviewers: Project maintainer (direction accepted 2026-11-26); reviewers TBD\
 Requirements and phase: ED-01, DOC-01, NFR-01, NFR-02, NFR-05 · Phase 0 (P0-03), decides Phase 1 shell\
 Related decisions: [ADR-0001](ADR-0001-markdown-source-preservation.md)
 
@@ -12,8 +12,8 @@ The editor needs rich text, keyboard-accessible interaction, reliable
 Markdown round trips, and support for Linux, macOS and Windows. Support is
 tiered: Omarchy (Hyprland/Wayland) provides Phase 0 and Phase 1 evidence,
 and macOS and Windows are gates for the Phase 2 release. The MVP may use a
-source-preserving live preview. A simple syntax-hiding WYSIWYG mode is
-required before the first official release. The decision is needed before
+source-preserving live preview. On 2026-11-26 the maintainer assigned a
+simple syntax-hiding mode to the Phase 2 pilot. The decision is needed before
 Phase 1 shell work.
 
 ## Options
@@ -42,10 +42,10 @@ latency on the shipped engine, packaging, and maintenance.
 
 Prioritise a minimal Tauri 2 candidate for the remaining validation. Use a
 CodeMirror 6 live preview as the MVP editor candidate: it passed every
-pilot fixture scenario in Chromium without a source-mapping layer. For the
-WYSIWYG mode required before the first official release, first extend the
-live preview (hide syntax on the active line, edit table cells as widgets
-mapped to cell spans). Keep ProseMirror with a source-mapped schema as the
+pilot fixture scenario in Chromium without a source-mapping layer. The
+Phase 2 pilot includes a simple syntax-hiding mode made by extending that
+live preview: hide syntax on the active line, and edit table cells as widgets
+mapped to cell spans. Keep ProseMirror with a source-mapped schema as the
 alternative if that extension proves inadequate. Keep a bundled-Chromium shell as the fallback if WebKitGTK fails essential
 criteria on Omarchy. Keep Iced as the native comparator and revisit GPUI if
 it offers a demonstrable advantage. Keep revisioning, validation, workspace
@@ -59,10 +59,11 @@ document semantics.
 - JavaScript editor dependencies need maintenance and license tracking.
 - Results measured in Chromium do not transfer to WebKitGTK; latency and
   rendering must be measured in the shipped engine.
-- A live preview editor reduces the MVP mapping cost but needs a credible
-  plan for the WYSIWYG mode before the first official release. Non-technical
-  pilot users will see Markdown syntax on the line they edit, including table
-  pipes; record where this costs them confidence.
+- Phase 2 includes the live preview and a simple syntax-hiding mode. In the
+  live preview, syntax shows on the line being edited. In the simple mode,
+  syntax stays hidden there, and table cells are edited as widgets. Where
+  the simple mode cannot represent a span, show that limitation. Record where
+  either mode costs a user confidence.
 - The CodeMirror candidate must configure the file's line separator and
   normalise typed and pasted line breaks, or it changes line endings.
 - Choosing bundled Chromium would change package size, memory budgets and
@@ -77,12 +78,9 @@ preview preserved bytes across line-ending variants, edited a table cell,
 replayed UTF-8 byte operations exactly and showed labelled inline review.
 Its work-and-layout latency proxy had a p95 of 6.1–11.8 ms against
 3.3–4.5 ms for ProseMirror without source mapping, both well inside the
-50 ms budget. The shared Linux image lacked the WebKit network helper at its required
-system path, leaving embedded editor behavior unverified. Start runtime
-validation on the Omarchy maintainer desktop with Hyprland and Wayland, and
-record native Wayland versus XWayland and any renderer workarounds. Validate
-the CodeMirror candidate there with nested lists and blockquotes, editable
-tables, keyboard review, real IME composition and repeatable timings.
+50 ms budget. The maintainer accepted this direction on 2026-11-26. The
+cloud image lacked the WebKit network helper, so the Omarchy desktop runs
+below are the runtime evidence.
 
 On 26 November 2026 the Tauri/ProseMirror host and a temporary CodeMirror
 host both opened and accepted keyboard input in native Wayland WebKitGTK on
@@ -109,9 +107,9 @@ from occasional tail spikes queuing at 50 chars/sec. These remain
 refresh-quantised proxies, not direct keystroke-to-paint evidence. A real
 IME session is still pending because the active Fcitx group has no composing
 input method; an attempted temporary Mozc selection did not take effect and
-the original profile was restored. Keep this ADR proposed until the real
-IME, direct paint and accessibility evidence and the WYSIWYG path are
-reviewed.
+the original profile was restored. The direction is accepted. Real IME,
+direct paint and accessibility evidence remain before the shell is called
+ready. The simple syntax-hiding mode is assigned to the Phase 2 pilot.
 
 Validate WebViews and screen readers (VoiceOver, NVDA) on macOS and Windows
 before the Phase 2 release, and resolve packaging and installer

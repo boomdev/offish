@@ -1,8 +1,8 @@
 # ADR-0005 — Mediate agent context and proposal output in Offish
 
-Status: Proposed\
+Status: Accepted\
 Date: 2026-11-26\
-Owner and reviewers: Project maintainer; reviewers TBD\
+Owner and reviewers: Project maintainer (direction accepted 2026-11-26); reviewers TBD\
 Requirements and phase: AI-01, AI-02, CHG-01, NFR-04 · Phase 0 (P0-06), applies from Phase 2\
 Related decisions: [ADR-0002](ADR-0002-proposals-and-recovery.md)
 
@@ -66,9 +66,11 @@ authentication.
 
 ## Validation and reconsideration
 
-The [Phase 0 evidence](../research/phase-0/README.md) distinguishes the
-stub's host-level grant checks from live account and sandbox checks. Before
-accepting this decision:
+The maintainer accepted this direction on 2026-11-26. The [Phase 0 evidence](../research/phase-0/README.md) distinguishes the
+stub's host-level grant checks from live account and sandbox checks. The four
+Phase 0 checks below are evidenced on Omarchy. A release calls Codex supported
+only after the Sign in with ChatGPT OAuth client flow is implemented and the
+macOS and Windows sandbox equivalents pass. Those remain Phase 2 deliverables.
 
 1. Run `spikes/check_codex.py` on the maintainer's signed-in Codex session on
    Omarchy and record the app-server version, streaming and interrupt result.
@@ -97,8 +99,8 @@ accepting this decision:
    clean process teardown (`survivors=0`), and redacted audit output against
    `codex-cli 0.172.0`.
 
-Phase 0 Linux validation items 1–4 are now evidenced; review this ADR for
-acceptance under G0-5. Implementing the SIWC OAuth client flow and macOS /
+Phase 0 Linux validation items 1–4 are evidenced, and the maintainer has
+accepted the direction. Implementing the SIWC OAuth client flow and macOS /
 Windows OS sandbox equivalents remain Phase 2 deliverables. If step 2 terms
 change or a platform blocks containment, repeat the checks with Cursor
 sign-in. Revisit when a provider changes its sign-in terms or protocol, or

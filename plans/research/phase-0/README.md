@@ -4,7 +4,7 @@
 
 ## Pilot workflow and pass criteria
 
-Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptions](fixtures/pilot/assumptions.md). The maintainer uses Omarchy for the first hands-on run. Rehearse opening an ordinary folder offline, editing a selection visually, using the assumptions as authorised context, reviewing a proposed date change, accepting or rejecting it, and restoring. Repeat with an external save while a proposal is pending.
+Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptions](fixtures/pilot/assumptions.md). The maintainer uses Omarchy for the first hands-on run and follows the [walkthrough](fixtures/pilot/walkthrough.md): open an ordinary folder offline, edit a selection, use the assumptions as authorised context, review a proposed date change, accept or reject it, restore, then repeat with an external save while a proposal is pending. The procedure is written. The run is still pending.
 
 | Test | Pass criterion | Evidence to date |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptio
 | CHG-01 · Review and restore | Proposed and rejected edits leave accepted bytes alone. Apply changes only the target. Restore returns exact preimage. A later external change is retained. | Linux filesystem checks and the simulated Chromium workflow passed. Production review and live agent checks remain open. |
 | AI-01/02 · Context | The adapter gets approved context and can propose only for the selected span. An unauthorised reference and post-cancellation output are refused. | Stub checks passed. Live provider containment and cancellation remain open. |
 | NFR-05 · Interaction | Keyboard reaches editor and review controls. Diffs have accessible labels and keyboard acceptance. Screen readers announce state and IME works. | Chromium keyboard focus, text insertion, synthetic accept and restore controls passed. Native text insert passed. Real screen reader and IME sessions remain untested. |
-| Pilot feedback | One maintainer walkthrough and additional early adopters. Current target is four of five completing edit, review and restore unassisted, to be recalibrated once the early adopter count and operating systems are known. | Candidate workflow and fixtures exist. Early adopter count and human walkthroughs remain pending. |
+| Pilot feedback | The Phase 0 early adopter is the maintainer on Omarchy. The user-success measure is that maintainer's edit, review and restore walkthrough. The five-user, four-unassisted target waits until more early adopters join. | Audience and operating system recorded. The [walkthrough procedure](fixtures/pilot/walkthrough.md) is written. The run remains pending. |
 
 Platform support is tiered. Omarchy provides the Phase 0 and Phase 1 evidence,
 and macOS and Windows are gates for the Phase 2 release.
@@ -427,7 +427,7 @@ Findings:
   is configured from the file. With a CRLF separator, a browser-handled Enter
   inserted a bare LF and produced mixed endings. Binding Enter to
   `insertNewline` and normalising typed or pasted line breaks fixed it.
-- Acceptance resets CodeMirror undo and redo history. The Chromium test
+- [ADR-0002](../../decisions/ADR-0002-proposals-and-recovery.md) accepts the review direction and settles undo for the MVP: acceptance resets CodeMirror undo and redo history. The Chromium test
   verifies that undo still works for subsequent edits and stops at accepted
   bytes. Checkpoint restore checks the file revision before replacing it.
 - The original latency proxy, two animation frames after input, is bounded by
@@ -496,13 +496,14 @@ only. Read-only mode is an insufficient containment boundary for real
 workspaces. Use ACP for interoperable session semantics and MCP for mediated
 typed tools if the chosen adapter supports them.
 
-Codex with Sign in with ChatGPT is the first integration targeted for release.
-Phase 0 Omarchy evidence (P0-T13, P0-T23, P0-T28) is complete pending ADR-0005
-review. Cursor sign-in remains the fallback if Codex terms or platform
-containment become blocked. API-key, direct and local model endpoints are
+[ADR-0005](../../decisions/ADR-0005-mediated-agent-integration.md) accepts this direction. Codex with Sign in with ChatGPT is the first integration targeted for release.
+Phase 0 Omarchy evidence (P0-T13, P0-T23, P0-T28) is complete. Cursor sign-in remains the fallback if Codex terms or platform
+containment become blocked. The SIWC OAuth client flow and macOS/Windows sandboxes are Phase 2 deliverables. API-key, direct and local model endpoints are
 later-release work. [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) · [MCP security practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 
 ## P0-07 · Interoperability and future formats
+
+The maintainer approved the Phase 0 deferrals on 2026-11-26. Phase 3 owns PDF reading order, OCR and AI-correction thresholds, and converter distribution. Phases 4 and 5 own formula corpus agreement, XLSX and PPTX round trips, and layout fidelity. The probes below remain the constraints for those later decisions.
 
 - Pandoc converted a synthetic DOCX to editable Markdown, including headings,
   lists, links, tables and a local image reference. Pandoc's default GFM output
@@ -536,10 +537,12 @@ later-release work. [ACP session setup](https://agentclientprotocol.com/protocol
 The project uses MIT. Iced and the exercised ProseMirror packages carry MIT
 terms. Tauri 2.12.7 declares Apache-2.0 OR MIT. IronCalc 0.9.1 and its base crate declare MIT OR Apache-2.0. The Debian
 Pandoc and Poppler package copyright files list GPL-family terms. Tesseract
-and English training data carry Apache-2.0 entries. These are preliminary
-component-level observations. Audit the exact release artifact, notices,
-bundling vs subprocess arrangements, optional engines and models,
-dependencies, font redistribution and updates when the stack is selected.
+and English training data carry Apache-2.0 entries. The CodeMirror 6 packages
+exercised in the editor spike are MIT. On 2026-11-26 the maintainer accepted
+these component terms for the chosen direction. GPL-family converters stay
+outside the application. The full transitive audit of the release artifact,
+notices, bundling versus subprocess arrangements, optional engines and models,
+font redistribution and updates waits until Phase 1 pins its lockfile.
 Research dependencies stay outside the application tree.
 
 ~~~mermaid
@@ -555,8 +558,8 @@ flowchart LR
 
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
-| G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
-| G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. Real IME composition, direct paint latency, broader accessibility and the WYSIWYG path remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
-| G0-3 | Hunk rebase, checkpoint restart recovery, modes and editor undo pass on Omarchy (P0-T29). Power-loss durability, full metadata, concurrent writers, symlinks and dropped watch events remain open. | P0-05 |
-| G0-4 | Omarchy evidence complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). Ready for ADR-0005 review; SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
-| G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |
+| G0-1 | Early adopter count is one: the maintainer on Omarchy. The walkthrough procedure is written; the maintainer's run is pending. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
+| G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. The simple syntax-hiding mode is assigned to the Phase 2 pilot. Real IME composition, direct paint latency and broader accessibility remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-3 | ADR-0002 direction accepted. Hunk rebase, checkpoint restart recovery, modes and editor undo pass on Omarchy (P0-T29). Power-loss durability, full metadata, concurrent writers, symlinks and dropped watch events remain open. | P0-05 |
+| G0-4 | ADR-0005 direction accepted. Omarchy evidence is complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
+| G0-5 | ADR-0001, ADR-0002, ADR-0003 and ADR-0005 directions accepted. P0-07 deferrals approved and component package terms accepted on 2026-11-26. The transitive audit waits for the Phase 1 lockfile. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

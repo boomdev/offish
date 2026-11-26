@@ -1,8 +1,8 @@
 # ADR-0001 — Preserve Markdown source during visual edits
 
-Status: Proposed\
+Status: Accepted\
 Date: 2026-11-26\
-Owner and reviewers: Project maintainer; reviewers TBD\
+Owner and reviewers: Project maintainer (direction accepted 2026-11-26); reviewers TBD\
 Requirements and phase: DOC-01, IO-01, WS-02, NFR-03 · Phase 0 (P0-04), applies from Phase 1\
 Related decisions: [ADR-0002](ADR-0002-proposals-and-recovery.md), [ADR-0003](ADR-0003-desktop-and-first-editor.md)
 
@@ -11,9 +11,9 @@ Related decisions: [ADR-0002](ADR-0002-proposals-and-recovery.md), [ADR-0003](AD
 Offish must edit local Markdown visually while allowing external tools to
 change the same files. Users must not see unrelated diffs or lose constructs
 the editor does not understand. The decision is needed before Phase 1 source
-editing and Phase 2 visual saves. The MVP may use a source-preserving live
-preview. A syntax-hiding WYSIWYG mode is required before the first official
-release, so the decision must keep that path open.
+editing and Phase 2 visual saves. The Phase 2 pilot includes a
+source-preserving live preview and a simple syntax-hiding mode made by
+extending it. Both use the same span-bound operations.
 
 ## Options
 
@@ -61,9 +61,9 @@ Keep Markdown bytes authoritative and edit through tracked source spans.
 ## Consequences
 
 - External tools and Git see minimal, readable diffs.
-- A source-first live preview fits this model directly. A later WYSIWYG mode
-  must emit the same span-bound operations and show unsupported spans
-  explicitly instead of normalising them.
+- A source-first live preview fits this model directly. The Phase 2
+  syntax-hiding mode must emit the same span-bound operations and show
+  unsupported spans explicitly instead of normalising them.
 - The span mapping layer is the main editor cost and risk. Coverage of
   unsupported spans is visible to users and must be measured.
 - The profile becomes a versioned format contract (NFR-06).
@@ -78,8 +78,9 @@ different parsers (markdown-it and pulldown-cmark), and neither handled
 front matter as metadata. A CodeMirror 6 live preview spike then parsed the
 front matter as metadata, preserved bytes for LF, CRLF, mixed endings and a
 BOM, and replayed every keyboard edit, including a table cell and a
-surrogate pair, as exact UTF-8 byte operations. Before accepting, validate in a real candidate
-editor with the authoritative parser: block boundary edits, repeated
+surrogate pair, as exact UTF-8 byte operations. The maintainer accepted this
+direction on 2026-11-26. Visual save is not called ready until a real candidate
+editor, using the authoritative parser, validates block boundary edits, repeated
 paragraphs, nested lists, tables, CRLF, front matter, comments, and marks
 spanning syntax. Revisit if unsupported-span coverage is too high for users
 or the mapping cost warrants a different model.

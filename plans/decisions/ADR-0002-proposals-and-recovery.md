@@ -1,8 +1,8 @@
 # ADR-0002 — Review proposals against a captured revision
 
-Status: Proposed\
+Status: Accepted\
 Date: 2026-11-26\
-Owner and reviewers: Project maintainer; reviewers TBD\
+Owner and reviewers: Project maintainer (direction accepted 2026-11-26); reviewers TBD\
 Requirements and phase: WS-02, CHG-01, CHG-02, NFR-03 · Phase 0 (P0-05), applies from Phase 2\
 Related decisions: [ADR-0001](ADR-0001-markdown-source-preservation.md), [ADR-0005](ADR-0005-mediated-agent-integration.md)
 
@@ -79,7 +79,7 @@ Checkpoint history and undo, settled for the MVP:
 
 ## Validation and reconsideration
 
-On Omarchy Btrfs the spike recovered after process exit before and after
+The maintainer accepted this direction on 2026-11-26. On Omarchy Btrfs the spike recovered after process exit before and after
 replacement, including an interrupted restore. It retained conflict bytes
 after an injected journal finalization failure. The tests also verified
 partial hunk rebase, 20 distinct retained checkpoints across restart,
@@ -88,9 +88,9 @@ mode bits. The CodeMirror Chromium check verified that undo stops at
 acceptance and still works for later edits (P0-T29).
 [Evidence and reproduction](../research/phase-0/README.md)
 
-Before accepting, verify power-loss durability, ownership, ACLs and other
+Review is not called ready until power-loss durability, ownership, ACLs and other
 file metadata, coordination across processes and external writers, symlinks,
-and dropped watch events on Omarchy.
+and dropped watch events are verified on Omarchy.
 Open-handle behavior on Windows and macOS replacement are Phase 2 release
 gates. Defer the on-disk journal format and multi-file apply until those
 tests define the guarantees.
