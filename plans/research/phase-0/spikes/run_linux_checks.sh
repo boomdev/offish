@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 "$python" -B spikes/check_proposals.py
 "$python" -B spikes/check_git.py
 "$python" -B spikes/check_search.py
+"$python" -B spikes/check_workspace_assets.py
+"$python" -B spikes/check_codex_containment.py
 
 interop_prerequisites() {
   if ! "$python" -c 'import docx, pypdf, PIL, reportlab' 2>/dev/null; then
