@@ -89,8 +89,9 @@ host both opened and accepted keyboard input in native Wayland WebKitGTK on
 Omarchy. The CodeMirror table rendered; the image showed alt text because
 that temporary host still used a placeholder asset URL. The committed
 `tauri-codemirror` spike now serves relative assets through a `workspace:`
-protocol scoped to `OFFISH_WORKSPACE`, with path-escape tests. Re-run it on
-Omarchy to confirm the timeline image loads. Remaining interaction and
+protocol scoped to `OFFISH_WORKSPACE`, with path-escape tests. Its Omarchy
+rerun rendered the timeline graphic and changed the window title after a
+keyboard edit in native Wayland WebKitGTK. Remaining interaction and
 latency checks still decide the shell.
 
 Validate WebViews and screen readers (VoiceOver, NVDA) on macOS and Windows

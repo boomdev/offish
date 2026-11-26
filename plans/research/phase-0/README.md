@@ -208,8 +208,12 @@ reported the Tauri window as native Wayland (`xwayland: false`).
   confirmed” in native WebKitGTK. That temporary adapter is superseded by the
   committed `spikes/tauri-codemirror` host, which serves relative assets
   through a `workspace:` URI scheme scoped to `OFFISH_WORKSPACE` (see
-  reproduction below). Path escape unit tests pass (P0-T22). Re-run the host
-  on Omarchy to confirm the pilot timeline image loads under WebKitGTK.
+  reproduction below). Path escape unit tests pass (P0-T22). In the Omarchy
+  rerun, `OFFISH_WORKSPACE="$PWD/fixtures/pilot" cargo run --manifest-path
+  spikes/tauri-codemirror/Cargo.toml` opened a native Wayland window titled
+  “Offish CodeMirror ready”. The pilot timeline SVG rendered as a graphic in
+  WebKitGTK, rather than alt text. Typing `x` into the editor changed the
+  window title to “Offish CodeMirror edit confirmed”.
 - `check_codex.py` passed against the signed-in Codex CLI 0.172.0: the
   synthetic answer arrived in nine streamed text events and interruption was
   acknowledged with final status `interrupted`. The test ran in an empty
@@ -453,7 +457,7 @@ flowchart LR
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
 | G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
-| G0-2 | CodeMirror opens in native WebKitGTK on Omarchy. Re-run `tauri-codemirror` to confirm workspace image loading, then validate nested structures, keyboard review, IME and latency in WebKitGTK. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-2 | CodeMirror opens, renders the workspace timeline image and accepts keyboard input in native WebKitGTK on Omarchy. Validate nested structures, keyboard review, IME and latency in WebKitGTK. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
 | G0-4 | Streaming/interrupt passed; SIWC+Codex app-server is the documented shipping sign-in path. Finish OS sandbox evidence (bwrap/Landlock), late-output cleanup and redaction; keep Cursor sign-in as the fallback. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |
