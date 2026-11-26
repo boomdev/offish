@@ -52,11 +52,18 @@ window.mountScaleFixture = () => {
     });
     view.dom.setAttribute("aria-label", "Scale fixture");
     view.dom.setAttribute("role", "textbox");
-    const samples = [];
+    const samples = { frame: [], work: [] };
     view.dom.addEventListener("beforeinput", () => {
         const start = performance.now();
+        // "work" ends after pending tasks and a forced layout; "frame" is refresh-quantised.
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+            void document.body.offsetHeight;
+            samples.work.push(performance.now() - start);
+        };
+        channel.port2.postMessage(null);
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            samples.push(performance.now() - start);
+            samples.frame.push(performance.now() - start);
         }));
     });
     return samples;

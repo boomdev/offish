@@ -46,6 +46,23 @@ def exercise_review(page, visual_edit):
 
 
 
+def report_latency(page, label):
+    """Type into a mounted 50,000-word scale fixture and print browser-only timing proxies."""
+    page.get_by_role("textbox", name="Scale fixture").focus()
+    for count in range(1, 31):
+        page.keyboard.insert_text("x")
+        page.wait_for_function(
+            "count => window.samples.frame.length === count && window.samples.work.length === count",
+            arg=count,
+        )
+    samples = page.evaluate("window.samples")
+    for name, description in [("work", "input-to-work-and-layout"), ("frame", "input-to-second-frame")]:
+        values = samples[name]
+        p95 = quantiles(values, n=100, method="inclusive")[94]
+        print(f"{label} 50,000-word Chromium {description} proxy: "
+              f"p50={median(values):.1f} ms, p95={p95:.1f} ms")
+
+
 def run(bundle, chromium=None):
     source = (FIXTURE / "brief.md").read_text()
     with sync_playwright() as playwright:
@@ -97,13 +114,7 @@ def run(bundle, chromium=None):
         page.goto("https://offish.invalid/")
         page.add_script_tag(path=bundle)
         page.evaluate("window.samples = window.mountScaleFixture(); undefined")
-        page.get_by_role("textbox", name="Scale fixture").focus()
-        for count in range(1, 31):
-            page.keyboard.insert_text("x")
-            page.wait_for_function("count => window.samples.length === count", arg=count)
-        samples = page.evaluate("window.samples")
-        p95 = quantiles(samples, n=100, method="inclusive")[94]
-        print(f"50,000-word Chromium input-to-second-frame proxy: p50={median(samples):.1f} ms, p95={p95:.1f} ms")
+        report_latency(page, "ProseMirror")
         browser.close()
 
     print("PASS: offline preview, image load, keyboard edit, stub proposal, acceptance and exact restore")
