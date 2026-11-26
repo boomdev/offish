@@ -21,7 +21,7 @@ before Phase 2 agent work.
 
 | Option | Sign-in for users | Containment | Status |
 | --- | --- | --- | --- |
-| Codex app-server (JSON-RPC over stdio) with ChatGPT sign-in | Existing ChatGPT plan | Needs proof that Offish mediates files and writes | Protocol exercised; cloud request rejected as unauthorised |
+| Codex app-server (JSON-RPC over stdio) with ChatGPT / SIWC | Existing ChatGPT plan via Sign in with ChatGPT OAuth for shipping; local `codex login` for maintainer trials | Needs OS sandbox plus host mediation of files and writes | Synthetic streaming and interruption passed on signed-in Omarchy; SIWC+app-server documented by OpenAI for open-source apps |
 | Cursor CLI with Cursor sign-in | Existing Cursor plan | Headless mode can write in its workspace; needs an enforceable boundary | Documentation only |
 | Claude Agent SDK or Zed's ACP adapter | Terms refer to commercial agreements; subscription use unverified | Permission model available; needs verification | Documentation only |
 | Direct model APIs, API keys, local or OpenAI-compatible endpoints | Separate key and billing, or local setup | Offish owns the tool loop | Later release |
@@ -43,9 +43,11 @@ authentication.
   provider responds late. Never route an approval-grant operation through
   model output. Record context disclosure decisions without logging raw
   credentials or private text in diagnostics.
-- Target Codex app-server with ChatGPT sign-in first. Call it supported only
-  after the sign-in path is confirmed as supported for an Offish integration
-  and the containment checks below pass.
+- Target Codex app-server first. For shipping, use OpenAI’s Sign in with
+  ChatGPT open-source OAuth flow and pass `ACCESS_TOKEN` into app-server as
+  documented for third-party hosts. Maintainer trials may use an existing
+  `codex login` session. Call the adapter supported only after the
+  containment checks below pass.
 - If Codex is blocked, evaluate Cursor sign-in next. Claude remains a trial
   candidate.
 - Enable filesystem-capable adapter modes only after verifying actual
@@ -70,13 +72,22 @@ accepting this decision:
 
 1. Run `spikes/check_codex.py` on the maintainer's signed-in Codex session on
    Omarchy and record the app-server version, streaming and interrupt result.
+   Completed 26 November 2026 with Codex CLI 0.172.0: nine streamed text
+   events, interruption acknowledged, and final status `interrupted`.
 2. Confirm from official OpenAI documentation or terms that ChatGPT sign-in
    is supported for a third-party integration such as Offish.
+   Confirmed: OpenAI documents Sign in with ChatGPT for open-source apps and
+   a Codex app-server token-sharing guide. Shipping must implement that OAuth
+   client flow; a pre-existing CLI login is only a pilot convenience.
 3. Show that Offish controls which files the agent sees and which changes
    reach disk: attempted out-of-scope reads, tool calls and direct writes are
-   refused.
+   refused. Host-side mediation checks are in `check_codex_containment.py`
+   (P0-T23). An OS sandbox around app-server is still required; bubblewrap
+   was present on Omarchy but could not create a user namespace in the recorded
+   run.
 4. Test cancellation, late output, redaction, and process cleanup against the
-   pinned runtime.
+   pinned runtime. Host cancellation of reads/proposals is covered by P0-T23;
+   late provider output and process cleanup against a live app-server remain.
 
 If step 2 or 3 fails, repeat the checks with Cursor sign-in. Revisit when a
 provider changes its sign-in terms or protocol, or when API-key and local

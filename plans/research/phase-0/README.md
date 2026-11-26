@@ -33,7 +33,7 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T10 | WS-03, NFR-02 | `check_search.py`: scan versus FTS5 timings | Recorded |
 | P0-T11 | DOC-01, ED-01, NFR-05 | `check_editor.py`: offline preview, keyboard edit, review, restore (Chromium) | Pass |
 | P0-T12 | DOC-01 | `markdown` Rust spike: validated UTF-8 span and table recognition | Pass |
-| P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Unauthorised in cloud; Omarchy run pending |
+| P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Pass on Omarchy with synthetic text; containment and sign-in terms pending |
 | P0-T14 | IO-01 | `check_interop.py`: DOCX structure and PDF text/OCR baselines | Pass |
 | P0-T15 | SHEET-01, SLIDE-01 | `check_formats.py` and `ironcalc` spike: storage, recalculation, slide geometry | Pass / recorded |
 | P0-T16 | DOC-01, NFR-03 | `check_codemirror.py`: no-op preserves LF, CRLF, mixed and BOM bytes; CRLF edit keeps CRLF | Pass |
@@ -42,6 +42,8 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T19 | DOC-01 | `check_codemirror.py`: table cell edit through revealed source | Pass |
 | P0-T20 | CHG-01, NFR-05 | `check_codemirror.py`: inline labelled review, keyboard accept and reject, stale proposal refused, exact restore | Pass |
 | P0-T21 | NFR-02 | `check_editor.py` and `check_codemirror.py`: 50,000-word latency proxies | Recorded |
+| P0-T22 | NFR-04, DOC-01 | `check_workspace_assets.py` and `tauri-codemirror` Rust tests: workspace asset path containment | Pass |
+| P0-T23 | AI-02, NFR-04 | `check_codex_containment.py`: mediated reads/writes, cancellation; optional bubblewrap | Pass (bwrap skipped when user namespaces denied) |
 
 ## Reproduce the Linux checks
 
@@ -171,7 +173,95 @@ evidence. [Omarchy](https://omarchy.org/) · [Tauri prerequisites](https://v2.ta
   restore on a native workspace and check an external save while a proposal
   is pending.
 - Record failures and any workarounds separately from the Debian X11 and
-  Chromium baseline. No hands-on Omarchy results are available yet.
+  Chromium baseline.
+
+### 26 November 2026 Omarchy run
+
+Reference desktop: Omarchy 4.5.0-3, Hyprland 0.56.2 in Wayland, Linux
+7.2.15-1-omarchy, Intel Core i5-1135G7 (4 cores/8 threads), 16 GiB RAM,
+WebKitGTK 2.54.1-1, Rust/Cargo 1.99.1, Node 26.12.0, Python 3.14.8,
+Chromium 155.0.8059.84-1. The internal 2256×1504 display ran at 1.6 scale;
+the external 1920×1080 display ran at 1.0 scale, both at 60 Hz. Hyprland
+reported the Tauri window as native Wayland (`xwayland: false`).
+
+- `run_linux_checks.sh` passed P0-T01–T09 and P0-T14, and recorded P0-T10
+  and P0-T15 with the pinned Python requirements. Pandoc 3.11, Poppler
+  26.10.0 and Tesseract 5.5.3 were installed. This desktop lacks DejaVu Sans,
+  so the run set
+  `OFFISH_FIXTURE_FONT=/usr/share/fonts/liberation/LiberationSans-Regular.ttf`.
+  DOCX structure and image extraction passed; text and image-only PDF pages
+  passed with 0.0% English OCR character error on the synthetic fixture.
+  Poppler and pypdf still returned a different column order from the fixture.
+  Warm FTS5 search p95 was 0.10 ms; warm file scan p95 was 85.44 ms. These
+  are local spike measurements, not release benchmarks.
+- The pinned CodeMirror and ProseMirror browser checks passed in local
+  Chromium. CodeMirror passed P0-T16–T20. On the 50,000-word Chromium fixture,
+  its input-to-work-and-layout proxy was p50 3.5 ms, p95 18.3 ms; the
+  input-to-second-frame proxy was p50 31.8 ms, p95 32.5 ms. ProseMirror's
+  corresponding p95 values were 20.3 ms and 35.6 ms. These proxies do not
+  measure WebKitGTK or production keystroke-to-paint latency.
+- The documented Tauri/ProseMirror host built and opened; its Rust invocation
+  set “Offish WebView ready” and a keyboard edit set “Offish WebView edit
+  confirmed”. A temporary copy of the host was then adapted to mount the
+  existing CodeMirror bundle and pilot brief. CodeMirror rendered headings,
+  lists and a table, and a keyboard edit set “Offish CodeMirror edit
+  confirmed” in native WebKitGTK. That temporary adapter is superseded by the
+  committed `spikes/tauri-codemirror` host, which serves relative assets
+  through a `workspace:` URI scheme scoped to `OFFISH_WORKSPACE` (see
+  reproduction below). Path escape unit tests pass (P0-T22). Re-run the host
+  on Omarchy to confirm the pilot timeline image loads under WebKitGTK.
+- `check_codex.py` passed against the signed-in Codex CLI 0.172.0: the
+  synthetic answer arrived in nine streamed text events and interruption was
+  acknowledged with final status `interrupted`. The test ran in an empty
+  temporary directory, refused tool calls and exposed no workspace files.
+  It establishes transport behavior only.
+- OpenAI documents an official [Sign in with ChatGPT](https://developers.openai.com/siwc/quickstart)
+  path for open-source apps and a [Codex app-server token-sharing guide](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server).
+  Shipping Offish should use that OAuth flow and pass `ACCESS_TOKEN` into
+  app-server, rather than relying on a pre-existing `codex login` session.
+  Host-side mediation checks (P0-T23) cover authorised reads, proposal-only
+  writes and cancellation. `bubblewrap` is installed on this desktop, but the
+  containment spike could not create a user namespace here; evaluate Landlock
+  or a confirmed bwrap policy on Omarchy before enabling filesystem-capable
+  adapters.
+
+The integrated edit–review–restore pilot, external-save conflict, native
+keyboard review, nested structures, IME, screen reader, clipboard, scaling
+and repeatable WebKitGTK latency checks remain pending. Keep P0-03 and P0-06
+in progress.
+
+### Reproduce the Tauri CodeMirror host
+
+From `plans/research/phase-0`, with the WebKitGTK prerequisites already
+installed:
+
+~~~sh
+research=$(pwd)
+codemirror_spike=$(mktemp -d)
+cp spikes/codemirror.mjs "$codemirror_spike/"
+(cd "$codemirror_spike" && npm install --no-save --ignore-scripts --no-fund --no-audit \
+  @codemirror/view@6.44.1 @codemirror/state@6.7.6 @codemirror/commands@6.11.2 \
+  @codemirror/language@6.13.1 @codemirror/lang-markdown@6.5.2 \
+  @codemirror/lang-yaml@6.1.3 @lezer/markdown@1.8.2 esbuild@0.28.2)
+"$codemirror_spike/node_modules/.bin/esbuild" "$codemirror_spike/codemirror.mjs" \
+  --bundle "--outfile=$codemirror_spike/editor.js"
+
+host=$(mktemp -d)
+cp -R spikes/tauri-codemirror/. "$host/"
+cp "$codemirror_spike/editor.js" "$host/web/editor.js"
+# Cargo.lock is copied with the spike for reproducible builds.
+OFFISH_WORKSPACE="$research/fixtures/pilot" (cd "$host" && cargo run)
+~~~
+
+A successful run shows “Offish CodeMirror ready”. The pilot timeline image
+should render (not alt text only). Typing into the brief so the buffer
+contains `x` should show “Offish CodeMirror edit confirmed”. Path containment
+without a window:
+
+~~~sh
+python -B spikes/check_workspace_assets.py
+cargo test --manifest-path spikes/tauri-codemirror/Cargo.toml
+~~~
 
 ## P0-01 · Product and reuse
 
@@ -362,8 +452,8 @@ flowchart LR
 
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
-| G0-1 | Record early adopters and their operating systems, run the pilot walkthroughs and record the Omarchy reference desktop hardware. | Maintainer and Phase 0 research owner |
-| G0-2 | On Omarchy, validate the WebKitGTK runtime with the CodeMirror 6 live preview candidate (passed in Chromium), nested structures, keyboard review and IME. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
+| G0-2 | CodeMirror opens in native WebKitGTK on Omarchy. Re-run `tauri-codemirror` to confirm workspace image loading, then validate nested structures, keyboard review, IME and latency in WebKitGTK. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
-| G0-4 | Complete the signed-in Codex trial on Omarchy, confirm that ChatGPT sign-in is supported for Offish, prove cancellation and containment, and keep Cursor sign-in as the fallback. | P0-06 |
+| G0-4 | Streaming/interrupt passed; SIWC+Codex app-server is the documented shipping sign-in path. Finish OS sandbox evidence (bwrap/Landlock), late-output cleanup and redaction; keep Cursor sign-in as the fallback. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

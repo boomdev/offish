@@ -82,8 +82,19 @@ system path, leaving embedded editor behavior unverified. Start runtime
 validation on the Omarchy maintainer desktop with Hyprland and Wayland, and
 record native Wayland versus XWayland and any renderer workarounds. Validate
 the CodeMirror candidate there with nested lists and blockquotes, editable
-tables, keyboard review, real IME composition and repeatable timings. Validate WebViews and screen readers (VoiceOver, NVDA) on
-macOS and Windows before the Phase 2 release, and resolve packaging and
-installer requirements. If WebKitGTK misses essential criteria, evaluate the
+tables, keyboard review, real IME composition and repeatable timings.
+
+On 26 November 2026 the Tauri/ProseMirror host and a temporary CodeMirror
+host both opened and accepted keyboard input in native Wayland WebKitGTK on
+Omarchy. The CodeMirror table rendered; the image showed alt text because
+that temporary host still used a placeholder asset URL. The committed
+`tauri-codemirror` spike now serves relative assets through a `workspace:`
+protocol scoped to `OFFISH_WORKSPACE`, with path-escape tests. Re-run it on
+Omarchy to confirm the timeline image loads. Remaining interaction and
+latency checks still decide the shell.
+
+Validate WebViews and screen readers (VoiceOver, NVDA) on macOS and Windows
+before the Phase 2 release, and resolve packaging and installer
+requirements. If WebKitGTK misses essential criteria, evaluate the
 bundled-Chromium fallback. Pursue the native comparator only with a credible
 rich-text delivery plan.
