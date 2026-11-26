@@ -2,35 +2,75 @@
 
 Status: Proposed\
 Date: 2026-11-26\
-Requirements: ED-01, DOC-01, NFR-01, NFR-02, NFR-05
+Owner and reviewers: Project maintainer; reviewers TBD\
+Requirements and phase: ED-01, DOC-01, NFR-01, NFR-02, NFR-05 · Phase 0 (P0-03), decides Phase 1 shell\
+Related decisions: [ADR-0001](ADR-0001-markdown-source-preservation.md)
 
-## Context and options
+## Context
 
 The editor needs rich text, keyboard-accessible interaction, reliable
-Markdown round trips, and support for Linux, macOS and Windows. Iced and GPUI
-keep the presentation layer in Rust. Their built-in text primitives need
-additional work to meet the tested office editor scenarios. Tauri hosts
-a web editor from a Rust application while adding OS WebView variation,
-IPC, package/runtime requirements and JavaScript dependency maintenance.
+Markdown round trips, and support for Linux, macOS and Windows. Support is
+tiered: Omarchy (Hyprland/Wayland) provides Phase 0 and Phase 1 evidence,
+and macOS and Windows are gates for the Phase 2 release. The MVP may use a
+source-preserving live preview. A simple syntax-hiding WYSIWYG mode is
+required before the first official release. The decision is needed before
+Phase 1 shell work.
 
-## Proposed decision
+## Options
 
-Prioritise a minimal Tauri 2 and ProseMirror candidate for the remaining
-validation. Keep Iced as the native comparator. Revisit GPUI if it offers
-a demonstrable advantage on the same fixtures. Keep revisioning, validation,
-workspace operations and policy in Rust. Restrict WebView navigation and use
-a typed bridge, explicit capabilities and application-controlled asset
-resolutions. Start with in-process Rust modules and isolate editor transport
-from document semantics.
+Shells:
+
+| Option | Strengths | Costs |
+| --- | --- | --- |
+| Tauri 2 on the system WebView | Small footprint, Rust host, mature web editors | WebKitGTK on Linux differs from Chromium in performance, rendering and GPU behavior; per-OS WebView variance; IPC |
+| Bundled Chromium (Electron, or a maintained Chromium runtime for Tauri if available) | One engine on every OS; the Chromium spike results transfer | Larger packages and memory; Rust core needs a sidecar or native module; frequent security updates |
+| Iced | Native Rust, MIT | Rich-text structure, edit mapping and accessibility need custom work |
+| GPUI | Native Rust, used by Zed | Pre-1.0 churn; rich-text editor and accessibility effort; no spike run |
+
+Editors (for WebView shells):
+
+| Option | Fit with ADR-0001 | Path to WYSIWYG |
+| --- | --- | --- |
+| CodeMirror 6 live preview | Edits source text directly, so bytes and spans are preserved by construction | Needs widget decorations that hide syntax, with tables the hardest case |
+| ProseMirror with a source-mapped schema | The default Markdown serialiser changed bytes and has no table node; needs a custom mapping layer | Native |
+| Tiptap, Milkdown, Lexical | Built on or similar to the above; recorded as considered | Native |
+
+Criteria: source fidelity, keyboard and IME behavior, accessibility,
+latency on the shipped engine, packaging, and maintenance.
+
+## Decision
+
+Prioritise a minimal Tauri 2 candidate for the remaining validation and
+compare a CodeMirror 6 live preview with ProseMirror on the same fixtures.
+Keep a bundled-Chromium shell as the fallback if WebKitGTK fails essential
+criteria on Omarchy. Keep Iced as the native comparator and revisit GPUI if
+it offers a demonstrable advantage. Keep revisioning, validation, workspace
+operations and policy in Rust. Restrict WebView navigation and use a typed
+bridge, explicit capabilities and application-controlled asset resolutions.
+Start with in-process Rust modules and isolate editor transport from
+document semantics.
+
+## Consequences
+
+- JavaScript editor dependencies need maintenance and license tracking.
+- Results measured in Chromium do not transfer to WebKitGTK; latency and
+  rendering must be measured in the shipped engine.
+- A live preview editor reduces the MVP mapping cost but needs a credible
+  plan for the WYSIWYG mode before the first official release.
+- Choosing bundled Chromium would change package size, memory budgets and
+  update obligations.
 
 ## Validation and reconsideration
 
 The [research evidence](../research/phase-0/README.md) includes an Iced
 text-widget edit, a ProseMirror browser component run, and a compiled Tauri
 host. The shared Linux image lacked the WebKit network helper at its required
-system path, leaving embedded editor behavior unverified. Start runtime validation on the Omarchy maintainer desktop with Hyprland and
-Wayland. Validate actual WebViews on all target platforms,
-including editable tables, keyboard review, real IME composition, screen
-readers and repeatable timings. Resolve lane-specific packaging and
-installer requirements. If WebView behavior misses essential criteria,
-pursue the native comparator only with a credible rich-text delivery plan.
+system path, leaving embedded editor behavior unverified. Start runtime
+validation on the Omarchy maintainer desktop with Hyprland and Wayland, and
+record native Wayland versus XWayland and any renderer workarounds. Validate
+editable tables, keyboard review, real IME composition and repeatable
+timings there. Validate WebViews and screen readers (VoiceOver, NVDA) on
+macOS and Windows before the Phase 2 release, and resolve packaging and
+installer requirements. If WebKitGTK misses essential criteria, evaluate the
+bundled-Chromium fallback. Pursue the native comparator only with a credible
+rich-text delivery plan.

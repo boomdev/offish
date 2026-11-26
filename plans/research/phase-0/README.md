@@ -12,7 +12,30 @@ Use the synthetic [launch brief](fixtures/pilot/brief.md) and [revised assumptio
 | CHG-01 · Review and restore | Proposed and rejected edits leave accepted bytes alone. Apply changes only the target. Restore returns exact preimage. A later external change is retained. | Linux filesystem checks and the simulated Chromium workflow passed. Production review and live agent checks remain open. |
 | AI-01/02 · Context | The adapter gets approved context and can propose only for the selected span. An unauthorised reference and post-cancellation output are refused. | Stub checks passed. Live provider containment and cancellation remain open. |
 | NFR-05 · Interaction | Keyboard reaches editor and review controls. Diffs have accessible labels and keyboard acceptance. Screen readers announce state and IME works. | Chromium keyboard focus, text insertion, synthetic accept and restore controls passed. Native text insert passed. Real screen reader and IME sessions remain untested. |
-| Pilot feedback | One maintainer walkthrough and additional early adopters. Target four of five completing edit, review and restore unassisted. | Candidate workflow and fixtures exist. Human walkthroughs remain pending. |
+| Pilot feedback | One maintainer walkthrough and additional early adopters. Current target is four of five completing edit, review and restore unassisted, to be recalibrated once the early adopter count and operating systems are known. | Candidate workflow and fixtures exist. Early adopter count and human walkthroughs remain pending. |
+
+Platform support is tiered. Omarchy provides the Phase 0 and Phase 1 evidence,
+and macOS and Windows are gates for the Phase 2 release.
+
+## Acceptance test index
+
+| Test ID | Requirements | Check | Status on Linux |
+| --- | --- | --- | --- |
+| P0-T01 | CHG-01, NFR-03 | `check_proposals.py`: review is private until accept, exact restore | Pass |
+| P0-T02 | CHG-01 | `check_proposals.py`: reject has no filesystem effect | Pass |
+| P0-T03 | WS-02, CHG-01 | `check_proposals.py`: external edit blocks a stale proposal | Pass |
+| P0-T04 | NFR-03 | `check_proposals.py`: recovery after process exit, divergence detection | Pass |
+| P0-T05 | NFR-03 | `check_proposals.py`: injected ENOSPC keeps a recoverable preimage | Pass |
+| P0-T06 | CHG-01, NFR-03 | `check_proposals.py`: restore preserves later edits | Pass |
+| P0-T07 | AI-02, NFR-04 | `check_proposals.py`: scoped reads and cancellation (stub) | Pass |
+| P0-T08 | DOC-01 | `check_proposals.py`: a patch cannot split a UTF-8 code point | Pass |
+| P0-T09 | GIT-01 | `check_git.py`: root discovery, status, UTF-8 path, ignore rule | Pass |
+| P0-T10 | WS-03, NFR-02 | `check_search.py`: scan versus FTS5 timings | Recorded |
+| P0-T11 | DOC-01, ED-01, NFR-05 | `check_editor.py`: offline preview, keyboard edit, review, restore (Chromium) | Pass |
+| P0-T12 | DOC-01 | `markdown` Rust spike: validated UTF-8 span and table recognition | Pass |
+| P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Unauthorised in cloud; Omarchy run pending |
+| P0-T14 | IO-01 | `check_interop.py`: DOCX structure and PDF text/OCR baselines | Pass |
+| P0-T15 | SHEET-01, SLIDE-01 | `check_formats.py` and `ironcalc` spike: storage, recalculation, slide geometry | Pass / recorded |
 
 ## Reproduce the Linux checks
 
@@ -23,15 +46,23 @@ describe exploratory checks. Use real representative hardware for release
 budgets. Collect the first physical desktop baseline on Omarchy with Hyprland
 and Wayland. Pin exact OS and WebView versions for macOS and Windows. Their tests are pending.
 
-From this directory, with Python 3.12 and the indicated tools:
+From this directory, with Python 3.12 and the indicated tools. The pinned
+Python packages are in `spikes/requirements.txt`. `spikes/run_linux_checks.sh` runs
+the checks that need only Python and Git, and runs the interoperability and
+format checks when their requirements are installed.
 
 ~~~sh
+python -m venv .venv && . .venv/bin/activate
+pip install -r spikes/requirements.txt
 python spikes/check_proposals.py
 python spikes/check_git.py
 python spikes/check_search.py
 python spikes/check_interop.py
 python spikes/check_formats.py
 ~~~
+
+Cargo lockfiles are not yet committed for the Rust spikes, so transitive
+crate versions can drift between runs.
 
 The interoperability scripts use Pandoc 3.1.11.1, Poppler 25.03.0, and
 Tesseract 5.5.0 with English data and a DejaVu Sans font. Python dependencies
@@ -51,8 +82,10 @@ cp spikes/editor.mjs "$browser_spike/"
   prosemirror-markdown@1.14.0 prosemirror-view@1.44.0 \
   prosemirror-state@1.4.4 markdown-it@15.0.3 esbuild@0.28.2)
 "$browser_spike/node_modules/.bin/esbuild" "$browser_spike/editor.mjs" --bundle "--outfile=$browser_spike/editor.js"
-python -B spikes/check_editor.py "$browser_spike/editor.js"
+python -B spikes/check_editor.py "$browser_spike/editor.js" --chromium /usr/bin/chromium
 ~~~
+
+Omit `--chromium` to use the browser that Playwright installed.
 
 Run the Rust spikes from temporary copies. Save the absolute fixture path
 before changing directories.
@@ -144,6 +177,16 @@ remain the proposed direction. Confirm through the remaining pilot evidence.
 The browser harness also ran edit, preview, keyboard acceptance and
 exact restore end to end with a deterministic adapter and temporary files.
 
+The browser probe parses with markdown-it and the Rust probe with
+pulldown-cmark, so their spans are not yet guaranteed to agree. Neither treats
+the fixture's front matter as metadata: the browser probe strips it with a
+regular expression, and the Rust probe does not enable pulldown-cmark's YAML
+metadata block option. Under plain CommonMark the block reads as a thematic
+break followed by a setext heading. ADR-0001 now requires one authoritative
+parser and an Offish Markdown profile. A CodeMirror 6 live preview has not
+been tested yet. It is the source-first comparator to ProseMirror, and the
+MVP may use a live preview.
+
 Thirty Chromium text insertions into a generated 50,000-word model gave p50
 30.5 ms and p95 31.6 ms from beforeinput to the second animation-frame
 callback. This is a browser-only timing proxy. It does not measure physical
@@ -166,8 +209,9 @@ incremental indexing, privacy exclusion and multilingual segmentation were
 outside these timings. Tantivy remains a candidate if scale or tokenisation
 needs justify another dependency. [SQLite FTS5](https://www.sqlite.org/fts5.html) · [Tantivy](https://github.com/quickwit-oss/tantivy)
 
-Git 2.56.1 found a nested repository root and reported UTF-8 paths, ignore
-rules, and staged-plus-working changes through porcelain v2. Prefer this
+Git 2.56.1 resolved the repository root from a subdirectory and reported
+UTF-8 paths, ignore rules, and staged-plus-working changes through porcelain
+v2. Nested repositories and submodules were not tested. Prefer this
 low-risk starting point for status if Git is installed. Verify packaging,
 authentication, signing, hooks, filters, and Git-disabled behavior before
 write actions. Keep gitoxide and libgit2 in consideration for distribution
@@ -187,8 +231,14 @@ directory, submits synthetic text, disables shell and configured MCP
 servers, and rejects server-to-client tool calls. The trial checks transport
 only. Read-only mode is an insufficient containment boundary for real
 workspaces. Use ACP for interoperable session semantics and MCP for mediated
-typed tools if the chosen adapter supports them. Keep local or direct
-model endpoints as fallback candidates. [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) · [MCP security practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
+typed tools if the chosen adapter supports them.
+
+Codex with ChatGPT sign-in is the first integration targeted for release.
+Next steps: run `check_codex.py` on the maintainer's signed-in Omarchy
+session, confirm that ChatGPT sign-in is supported for an Offish
+integration, and show that Offish controls which files the agent sees and
+which changes reach disk. Cursor sign-in is the fallback if Codex is blocked.
+API-key, direct and local model endpoints are later-release work. [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) · [MCP security practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 
 ## P0-07 · Interoperability and future formats
 
@@ -243,8 +293,8 @@ flowchart LR
 
 | Gate | Remaining evidence | Owner for next validation |
 | --- | --- | --- |
-| G0-1 | Run the pilot walkthroughs and record the Omarchy reference desktop hardware. | Maintainer and Phase 0 research owner |
-| G0-2 | Validate real WebViews and native comparator where useful, source-mapped table editing, keyboard review, screen reader and IME on target systems. | P0-03/P0-04 |
-| G0-3 | Verify safe save, metadata and recovery on real target filesystems, including external conflicts and interruption. | P0-05 |
-| G0-4 | Establish a usable supported live authentication path, prove cancellation and containment, and document fallback. | P0-06 |
+| G0-1 | Record early adopters and their operating systems, run the pilot walkthroughs and record the Omarchy reference desktop hardware. | Maintainer and Phase 0 research owner |
+| G0-2 | On Omarchy, validate the WebKitGTK runtime, CodeMirror 6 live preview and ProseMirror comparators, one authoritative span parser, table editing, keyboard review and IME. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
+| G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
+| G0-4 | Complete the signed-in Codex trial on Omarchy, confirm that ChatGPT sign-in is supported for Offish, prove cancellation and containment, and keep Cursor sign-in as the fallback. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

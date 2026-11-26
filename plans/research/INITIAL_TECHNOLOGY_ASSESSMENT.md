@@ -16,7 +16,7 @@
 
 | Candidate and upstream | Coverage and integration assessment | Validation |
 | --- | --- | --- |
-| [IronCalc](https://github.com/ironcalc/IronCalc) | Apache-2.0 Rust spreadsheet engine candidate. Reusing evaluation internals may reduce formula work. | Compare supported functions and Excel semantics, cache and dependency invalidation, structural edits, XLSX scope, memory and engine/model adaptation cost. |
+| [IronCalc](https://github.com/ironcalc/IronCalc) | Rust spreadsheet engine candidate. The evaluated 0.9.1 crates declare MIT OR Apache-2.0. Reusing evaluation internals may reduce formula work. | Compare supported functions and Excel semantics, cache and dependency invalidation, structural edits, XLSX scope, memory and engine/model adaptation cost. |
 | [Typst](https://github.com/typst/typst) | Apache-2.0 typesetting candidate for PDF and reusable print templates. Needs a mapping from the working document model. | Test fonts, styling, pagination, deterministic output, offline availability and template safety. |
 | [Pandoc](https://github.com/jgm/pandoc) | GPL-family conversion tool. Check exact version terms and redistribution obligations. Candidate sidecar for selected DOCX, ODT, HTML, and slide paths. | Validate import/export independently, conversion loss, offline binaries, packaging and installer obligations. |
 | [Docling](https://github.com/docling-project/docling) | MIT metadata for the project. Candidate PDF extraction including layout-heavy cases. Python and model dependencies could dominate package size and runtime. | Verify model terms and offline availability, scanned pages, memory, timeouts, and reproducibility. |
