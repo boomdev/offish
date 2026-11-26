@@ -9,7 +9,10 @@ import { Table } from "@lezer/markdown";
 // Offish Markdown profile candidate: CommonMark, pipe tables and YAML front matter.
 const language = yamlFrontmatter({ content: markdown({ base: commonmarkLanguage, extensions: [Table] }) });
 const encoder = new TextEncoder();
-const assetBase = "https://offish.invalid/";
+// Browser checks use the offline fixture host. The Tauri host sets window.offishAssetBase
+// to a workspace-scoped custom protocol before mounting. Resolve at image-create time so
+// the host can set the base after this module loads.
+const assetBase = () => window.offishAssetBase || "https://offish.invalid/";
 
 // Editor positions count each line break as one unit, whatever its bytes. Byte offsets
 // re-encode the prefix with the file's line break; production code needs a line index.
@@ -67,7 +70,7 @@ class ImageWidget extends WidgetType {
     toDOM() {
         const image = document.createElement("img");
         image.alt = this.alt;
-        image.src = new URL(this.src, assetBase).href;
+        image.src = new URL(this.src, assetBase()).href;
         return image;
     }
 }

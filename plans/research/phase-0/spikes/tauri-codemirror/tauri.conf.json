@@ -1,0 +1,13 @@
+{
+  "productName": "Offish CodeMirror Spike",
+  "identifier": "org.offish.phase0.codemirror",
+  "build": { "frontendDist": "web" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "Offish CodeMirror Spike", "width": 900, "height": 700 }],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: workspace:; connect-src 'self' workspace:"
+    }
+  },
+  "bundle": { "active": false }
+}
