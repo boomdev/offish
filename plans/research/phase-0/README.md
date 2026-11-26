@@ -33,7 +33,7 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T10 | WS-03, NFR-02 | `check_search.py`: scan versus FTS5 timings | Recorded |
 | P0-T11 | DOC-01, ED-01, NFR-05 | `check_editor.py`: offline preview, keyboard edit, review, restore (Chromium) | Pass |
 | P0-T12 | DOC-01 | `markdown` Rust spike: validated UTF-8 span and table recognition | Pass |
-| P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Pass on Omarchy with synthetic text; containment and sign-in terms pending |
+| P0-T13 | AI-01, AI-02 | `check_codex.py`: signed-in Codex streaming and interrupt | Pass on Omarchy (transport only; containment covered by P0-T23/T28) |
 | P0-T14 | IO-01 | `check_interop.py`: DOCX structure and PDF text/OCR baselines | Pass |
 | P0-T15 | SHEET-01, SLIDE-01 | `check_formats.py` and `ironcalc` spike: storage, recalculation, slide geometry | Pass / recorded |
 | P0-T16 | DOC-01, NFR-03 | `check_codemirror.py`: no-op preserves LF, CRLF, mixed and BOM bytes; CRLF edit keeps CRLF | Pass |
@@ -43,11 +43,12 @@ and macOS and Windows are gates for the Phase 2 release.
 | P0-T20 | CHG-01, NFR-05 | `check_codemirror.py`: inline labelled review, keyboard accept and reject, stale proposal refused, exact restore | Pass |
 | P0-T21 | NFR-02 | `check_editor.py` and `check_codemirror.py`: 50,000-word latency proxies | Recorded |
 | P0-T22 | NFR-04, DOC-01 | `check_workspace_assets.py` and `tauri-codemirror` Rust tests: workspace asset path containment | Pass |
-| P0-T23 | AI-02, NFR-04 | `check_codex_containment.py`: mediated reads/writes, cancellation; optional bubblewrap | Pass (bwrap skipped when user namespaces denied) |
+| P0-T23 | AI-02, NFR-04 | `check_codex_containment.py`: mediated reads/writes, cancellation, redaction, and offline bubblewrap workspace/home/env isolation | Pass on Omarchy (6/6; bwrap skips only when user namespaces are denied) |
 | P0-T24 | DOC-01, NFR-03 | Native WebKitGTK: nested list and blockquote preview, no-op source, bounded edit | Pass on Omarchy |
 | P0-T25 | CHG-01, NFR-05 | Native WebKitGTK: keyboard reject and accept with labelled controls | Pass on Omarchy |
 | P0-T26 | DOC-01, NFR-05 | Real IME composition, source export and reload | Pending: no composing IME configured in the active Fcitx group |
 | P0-T27 | NFR-01, NFR-02 | Native WebKitGTK: 50,000-word input latency proxy runs (paced and burst, p50/p95) | Recorded; paced clears 50 ms, direct paint remains open |
+| P0-T28 | AI-01, AI-02, NFR-04 | `check_codex_containment.py --live`: real `codex app-server` inside `bwrap` (canary isolation, 0 direct writes, active-stream interrupt, process cleanup, audit redaction) | Pass on Omarchy (P0-T28a–T28d) |
 
 ## Reproduce the Linux checks
 
@@ -227,11 +228,29 @@ reported the Tauri window as native Wayland (`xwayland: false`).
   path for open-source apps and a [Codex app-server token-sharing guide](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server).
   Shipping Offish should use that OAuth flow and pass `ACCESS_TOKEN` into
   app-server, rather than relying on a pre-existing `codex login` session.
-  Host-side mediation checks (P0-T23) cover authorised reads, proposal-only
-  writes and cancellation. `bubblewrap` is installed on this desktop, but the
-  containment spike could not create a user namespace here; evaluate Landlock
-  or a confirmed bwrap policy on Omarchy before enabling filesystem-capable
-  adapters.
+- `check_codex_containment.py` passed all six offline checks natively on
+  Omarchy (P0-T23): authorised reads, proposal-only writes, cancellation
+  dropping late deltas and refusing post-cancel tools, diagnostic redaction of
+  Bearer/JWT/API tokens and private content, and `bubblewrap` isolation
+  proving a sibling workspace canary, real `$HOME`, host environment variables
+  and read-only binds are unreachable/immutable. (The earlier skip occurred
+  only inside a nested agent sandbox that disallowed user namespaces.)
+- `check_codex_containment.py --live` passed P0-T28a–T28d with the static
+  `codex-cli 0.172.0` binary mounted alone at `/app/codex` inside `bwrap`
+  (no `/bin`, `/usr/bin`, `/home` or workspace mounted; only DNS/TLS `/etc`
+  files and a disposable `/sandbox` copy of `auth.json` at mode `0600`):
+  - P0-T28a: revised the selection via nine streamed deltas while ignoring an
+    adversarial prompt referencing a sibling canary path; zero canary leak,
+    zero direct writes on disk, and Offish's validated proposal applied and
+    restored `brief.md` cleanly.
+  - P0-T28b: interrupted an active streaming turn (`status=interrupted`,
+    `dropped_late_deltas=0`), with post-cancel reads and proposals refused.
+  - P0-T28c: sandboxed process exited cleanly (`exit=-15`, `survivors=0`).
+  - P0-T28d: diagnostic audit recorded four metadata events with zero secrets
+    or canary/document text.
+  Reproduce the live contained check with
+  `python3 -B spikes/check_codex_containment.py --live`. Shipping still needs
+  the SIWC OAuth flow and Phase 2 macOS/Windows sandbox equivalents.
 
 ### Native WebKitGTK follow-up
 
@@ -282,7 +301,8 @@ No synthetic key or composition event was counted as a real IME test.
 
 The integrated edit–review–restore pilot, external-save conflict, real IME,
 screen reader, clipboard, scaling and direct WebKitGTK paint measurement
-remain pending. Keep P0-03 and P0-06 in progress.
+remain pending. Keep P0-03 in progress; P0-06 Omarchy evidence is complete
+pending ADR-0005 review.
 
 ### Reproduce the Tauri CodeMirror host
 
@@ -451,7 +471,7 @@ and performance. [git status](https://git-scm.com/docs/git-status)
 
 | Candidate | Available integration evidence | Trial status and limitation |
 | --- | --- | --- |
-| Codex app-server | JSON-RPC stdio, streamed output and turn interruption are documented. The installed 0.172.0-alpha.2 acknowledged initialise, thread and turn requests. Its runtime rejected the docs' older restricted-read encoding. Pin and test protocol/capabilities. | Local CLI reported a ChatGPT login. The isolated synthetic turn failed with error category `unauthorized`. Response streaming, live cancellation and provider entitlement are unverified. [App-server](https://learn.chatgpt.com/docs/app-server) |
+| Codex app-server | JSON-RPC stdio, streamed output and turn interruption are documented. OpenAI documents [Sign in with ChatGPT](https://developers.openai.com/siwc/quickstart) for open-source apps and [Codex app-server token sharing](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server). Pin and test protocol/capabilities. | Cloud VM trial failed `unauthorized`. On Omarchy with signed-in `codex-cli 0.172.0`, synthetic streaming and interrupt passed (P0-T13), and `bwrap`-contained `codex app-server` passed canary isolation, zero direct writes, active-stream interrupt, process cleanup and audit redaction (P0-T23, P0-T28). SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. [App-server](https://learn.chatgpt.com/docs/app-server) |
 | Cursor CLI | Documents login through a browser or user API key and stream-json output. Headless print mode can write within its workspace. Permission config helps restrict tools, while Offish still needs an enforceable boundary. | Documentation only. Binary, account and embedding permissions for the pilot remain unverified. [Authentication](https://cursor.com/docs/cli/reference/authentication) · [Headless use](https://cursor.com/docs/cli/headless) · [Permissions](https://cursor.com/docs/cli/reference/permissions) |
 | Claude | The Claude Agent SDK is an integration surface. Zed's upstream ACP adapter provides a useful permission and session reference. The SDK refers downstream products to Anthropic's commercial terms. Confirm the intended account and distribution before integration. | No live session. Subscription access for an Offish workflow remains unverified. [Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) · [ACP adapter](https://github.com/zed-industries/claude-agent-acp) |
 
@@ -463,12 +483,11 @@ only. Read-only mode is an insufficient containment boundary for real
 workspaces. Use ACP for interoperable session semantics and MCP for mediated
 typed tools if the chosen adapter supports them.
 
-Codex with ChatGPT sign-in is the first integration targeted for release.
-Next steps: run `check_codex.py` on the maintainer's signed-in Omarchy
-session, confirm that ChatGPT sign-in is supported for an Offish
-integration, and show that Offish controls which files the agent sees and
-which changes reach disk. Cursor sign-in is the fallback if Codex is blocked.
-API-key, direct and local model endpoints are later-release work. [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) · [MCP security practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
+Codex with Sign in with ChatGPT is the first integration targeted for release.
+Phase 0 Omarchy evidence (P0-T13, P0-T23, P0-T28) is complete pending ADR-0005
+review. Cursor sign-in remains the fallback if Codex terms or platform
+containment become blocked. API-key, direct and local model endpoints are
+later-release work. [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) · [MCP security practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 
 ## P0-07 · Interoperability and future formats
 
@@ -526,5 +545,5 @@ flowchart LR
 | G0-1 | Record early adopters and their operating systems, and run the pilot walkthroughs. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
 | G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. Real IME composition, direct paint latency, broader accessibility and the WYSIWYG path remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | Verify safe save, metadata, hunks with partial acceptance, checkpoint history and recovery on Omarchy filesystems, including external conflicts and interruption. | P0-05 |
-| G0-4 | Streaming/interrupt passed; SIWC+Codex app-server is the documented shipping sign-in path. Finish OS sandbox evidence (bwrap/Landlock), late-output cleanup and redaction; keep Cursor sign-in as the fallback. | P0-06 |
+| G0-4 | Omarchy evidence complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). Ready for ADR-0005 review; SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
 | G0-5 | Review the proposed ADRs, confirm dependencies and package terms, and record explicit deferrals. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |

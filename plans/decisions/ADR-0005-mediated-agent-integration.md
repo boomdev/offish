@@ -81,14 +81,25 @@ accepting this decision:
    client flow; a pre-existing CLI login is only a pilot convenience.
 3. Show that Offish controls which files the agent sees and which changes
    reach disk: attempted out-of-scope reads, tool calls and direct writes are
-   refused. Host-side mediation checks are in `check_codex_containment.py`
-   (P0-T23). An OS sandbox around app-server is still required; bubblewrap
-   was present on Omarchy but could not create a user namespace in the recorded
-   run.
+   refused.
+   Completed 26 November 2026 on Omarchy: offline host mediation and `bwrap`
+   isolation checks pass (P0-T23, 6/6), and `check_codex_containment.py --live`
+   (P0-T28a) ran the static `codex-cli 0.172.0` binary inside `bwrap` without
+   `/bin`, `/usr/bin`, `/home`, or the workspace mounted. An adversarial prompt
+   targeting a sibling canary file could not reach it, zero direct disk writes
+   occurred, and only Offish's validated proposal path wrote and restored
+   `brief.md`.
 4. Test cancellation, late output, redaction, and process cleanup against the
-   pinned runtime. Host cancellation of reads/proposals is covered by P0-T23;
-   late provider output and process cleanup against a live app-server remain.
+   pinned runtime.
+   Completed 26 November 2026 on Omarchy: P0-T23 verifies host drop of late
+   deltas, post-cancel refusal, and credential/private-text redaction;
+   P0-T28b–T28d verify live active-stream interruption (`status=interrupted`),
+   clean process teardown (`survivors=0`), and redacted audit output against
+   `codex-cli 0.172.0`.
 
-If step 2 or 3 fails, repeat the checks with Cursor sign-in. Revisit when a
-provider changes its sign-in terms or protocol, or when API-key and local
-adapters are scheduled.
+Phase 0 Linux validation items 1–4 are now evidenced; review this ADR for
+acceptance under G0-5. Implementing the SIWC OAuth client flow and macOS /
+Windows OS sandbox equivalents remain Phase 2 deliverables. If step 2 terms
+change or a platform blocks containment, repeat the checks with Cursor
+sign-in. Revisit when a provider changes its sign-in terms or protocol, or
+when API-key and local adapters are scheduled.
