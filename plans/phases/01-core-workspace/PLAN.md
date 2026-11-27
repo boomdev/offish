@@ -56,6 +56,11 @@ The first search slice uses the in-memory index described in
 
 Automate Rust filesystem and index checks on disposable folders. Use process-level tests for simultaneous saves and interrupted recovery. Verify the normal desktop flow on Omarchy with networking disabled. Use fixture copies and record the filesystem, runtime, hardware and scale. Capture actual IME and assistive technology observations. Record repeated cold and warm measurements with p50, p95 and peak memory where applicable.
 
+Use the [native Omarchy acceptance runner](run-omarchy-acceptance.py) for
+P1-T03 clean reload, P1-T06 startup and search timings, and keyboard and
+AT-SPI observations under P1-T07. Record IME and physical paint separately
+from automation timings.
+
 ## 8. Acceptance criteria
 
 | Test | Requirements | Pass criterion |
@@ -223,6 +228,40 @@ GTK initialization blocked the sandbox's native run. The maintainer
 confirmed search works on Omarchy and that Ctrl+Shift+F returns focus to
 the query from the results. Native Up/Down navigation, end-to-end timing,
 peak memory, and cold explorer startup measurement remain open.
+
+### Phase 1 acceptance pass
+
+On 27 November 2026, the locked desktop build, 22 Rust tests and all four
+JavaScript suites passed. A frontend check against a disposable on-disk
+file used a mocked Tauri bridge and CodeMirror view with real editor state.
+It verified clean reload of a BOM/CRLF Unicode document after external
+replacement and preservation of a dirty draft and the competing disk
+version on a subsequent external write. Native clean reload remains open.
+
+The 10,000-file release backend fixture measured 72 ms with an empty index.
+Warm search was 30 ms p50 and 35 ms p95. Opening and listing the root took
+1.7 ms p50 and 2.4 ms p95. Peak RSS for the backend test process was 21 MiB.
+The fixture was on Btrfs and the OS page cache was warm from fixture creation.
+
+GTK failed to initialize in the coding sandbox. Hyprland IPC and the user
+D-Bus connection for AT-SPI were also unavailable. For the native run,
+use a terminal in the active Omarchy session with `hyprctl`, `wtype`, and
+Python GObject bindings for AT-SPI installed:
+
+```sh
+npm --prefix apps/desktop run build
+cargo build --release --locked
+python plans/phases/01-core-workspace/run-omarchy-acceptance.py
+```
+
+The runner uses an isolated configuration and disposable fixture. It
+measures cold process startup against a warm filesystem cache and warm
+search from the keyboard request to the accessible status. It checks
+external clean reload and keyboard focus via AT-SPI. Host peak RSS excludes
+the WebKit subprocesses. Let its temporary window keep keyboard focus.
+The runner's native assertions still need execution in the active session.
+Real IME commit and reload, screen-reader speech, and direct
+keystroke-to-paint timing on the 50,000-word document remain open.
 
 ### P1-T07b workspace UX
 

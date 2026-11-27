@@ -167,6 +167,14 @@ fn search_timing_fixture() {
     }
     let workspace = Workspace::open(&fixture.0).unwrap();
     let roots = [SearchRoot::new(0, &workspace).unwrap()];
+    let mut lists = Vec::new();
+    for _ in 0..20 {
+        let start = Instant::now();
+        let listed = Workspace::open(&fixture.0).unwrap().list("").unwrap();
+        lists.push(start.elapsed());
+        assert_eq!(listed.len(), 10_000);
+    }
+    lists.sort_unstable();
     let mut search = SearchIndex::default();
     let start = Instant::now();
     let cold = search.search(&roots, &[], "absent", true).unwrap();
@@ -191,6 +199,15 @@ fn search_timing_fixture() {
         "10,000 files. Cold cache {cold_duration:?}. Warm p50 {:?}, p95 {:?}.",
         warm[9], warm[18]
     );
+    eprintln!(
+        "Backend root open and list p50 {:?}, p95 {:?}.",
+        lists[9], lists[18],
+    );
+    if let Ok(status) = fs::read_to_string("/proc/self/status") {
+        if let Some(peak) = status.lines().find(|line| line.starts_with("VmHWM:")) {
+            eprintln!("Backend test process peak RSS {peak}");
+        }
+    }
 }
 
 #[test]
