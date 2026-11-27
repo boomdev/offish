@@ -41,3 +41,17 @@ textarea { display: block; width: 100%; margin: .4rem 0; font: inherit; }
 .tab .tab-close { padding-inline: .55rem; }
 #editor .cm-content { caret-color: var(--accent); }
 #editor .cm-cursor, #editor .cm-dropCursor { border-left-color: var(--accent); }
+
+#file-actions:not([hidden]), .entry-buttons { display: flex; flex-wrap: wrap; gap: .35rem; }
+#files li { display: flex; flex-wrap: wrap; gap: .2rem; margin-bottom: .3rem; }
+#files li button { width: auto; margin: 0; }
+#files li button:first-child { flex: 1; min-width: 5rem; }
+#files li button + button { font-size: .8rem; }
+dialog { background: var(--surface); color: inherit; border: 1px solid var(--line); }
+dialog::backdrop { background: #0006; }
+#entry-dialog input { display: block; margin: .3rem 0 .8rem; font: inherit; }
+
+#files details { font-size: .8rem; text-align: left; }
+#files summary { cursor: pointer; padding: .3rem; }
+#files details button { display: block; margin-block-start: .2rem; width: 100%; }
+#entry-description { max-width: 28rem; }

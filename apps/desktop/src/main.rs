@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 mod linux {
     use gtk::prelude::*;
-    use offish::workspace::{Document, Entry, Save, Workspace};
+    use offish::workspace::{Document, Entry, Save, TrashEntry, Workspace};
     use std::{path::PathBuf, sync::Mutex};
     use tauri::{AppHandle, Manager, State, WebviewWindow};
 
@@ -83,6 +83,60 @@ mod linux {
     }
 
     #[tauri::command]
+    fn create_entry(
+        state: State<'_, Current>,
+        parent: String,
+        name: String,
+        folder: bool,
+    ) -> Response<Option<String>> {
+        with_workspace(state, |workspace| {
+            workspace.create_entry(&parent, &name, folder)
+        })
+    }
+
+    #[tauri::command]
+    fn rename_entry(
+        state: State<'_, Current>,
+        path: String,
+        name: String,
+    ) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.rename_entry(&path, &name))
+    }
+
+    #[tauri::command]
+    fn move_entry(
+        state: State<'_, Current>,
+        path: String,
+        folder: String,
+    ) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.move_entry(&path, &folder))
+    }
+
+    #[tauri::command]
+    fn duplicate_entry(
+        state: State<'_, Current>,
+        path: String,
+        name: String,
+    ) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.duplicate_entry(&path, &name))
+    }
+
+    #[tauri::command]
+    fn trash_entry(state: State<'_, Current>, path: String) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.trash_entry(&path))
+    }
+
+    #[tauri::command]
+    fn list_trash(state: State<'_, Current>) -> Response<Vec<TrashEntry>> {
+        with_workspace(state, Workspace::list_trash)
+    }
+
+    #[tauri::command]
+    fn restore_entry(state: State<'_, Current>, id: String) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.restore_entry(&id))
+    }
+
+    #[tauri::command]
     fn read_document(state: State<'_, Current>, path: String) -> Response<Document> {
         with_workspace(state, |workspace| workspace.read(&path))
     }
@@ -134,6 +188,13 @@ mod linux {
                 choose_folder,
                 workspace_name,
                 list_directory,
+                create_entry,
+                rename_entry,
+                move_entry,
+                duplicate_entry,
+                trash_entry,
+                list_trash,
+                restore_entry,
                 read_document,
                 save_document,
                 recovery_draft,

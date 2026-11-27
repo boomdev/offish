@@ -17,7 +17,14 @@ cargo run --locked -p offish -- /absolute/path/to/a/test-folder
 
 Launch without a folder argument to use the folder picker. Use a disposable
 copy of the pilot fixtures for the first run. Select a Markdown file, edit
-the source, and use the Save button or Ctrl+S. The details panel displays
+the source, and use the Save button or Ctrl+S. The Files panel has
+**New file** and **New folder** controls. Each entry's **Actions** menu
+offers Rename, Move, Duplicate, and Move to Trash. Move takes a folder path
+relative to the workspace root. Duplicate copies the saved contents.
+Close affected tabs before moving an entry to Trash, then use the
+**Trash** button to restore it to its original path. Trash requires the
+workspace and private recovery storage to support atomic renames between
+them. An existing entry at the original path blocks restore. The details panel displays
 a conflicting disk version while the draft remains in the editor.
 An interrupted save can leave a recovery copy. Reopen the file and select
 **Load recovered draft** to inspect it.

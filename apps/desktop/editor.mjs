@@ -1,7 +1,9 @@
 import { history, historyKeymap } from "@codemirror/commands";
-import { EditorState, Transaction } from "@codemirror/state";
+import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
+
+import { isMarkdown, pathInFolder, remapOpenDocuments, renamedPath } from "./explorer.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const $ = id => document.getElementById(id);
@@ -11,6 +13,10 @@ let folder = "";
 let active = null;
 let editor = null;
 let choosing = false;
+let mutating = false;
+let viewEpoch = 0;
+let entryAction = null;
+const editorLabel = new Compartment();
 
 const status = message => { $("status").textContent = message; };
 const report = error => status(String(error));
@@ -153,6 +159,10 @@ const normalizeCrlf = EditorState.transactionFilter.of(transaction => {
     };
 });
 
+function labelFor(item) {
+    return EditorView.contentAttributes.of({ "aria-label": filename(item.path), tabindex: "0" });
+}
+
 function display(item) {
     editor?.destroy();
     $("editor").replaceChildren();
@@ -173,7 +183,7 @@ function display(item) {
                 extensions: [
                     EditorState.lineSeparator.of(separator), EditorState.readOnly.of(item.readOnly),
                     EditorView.editable.of(!item.readOnly), EditorView.lineWrapping,
-                    EditorView.contentAttributes.of({ "aria-label": filename(item.path), tabindex: "0" }),
+                    editorLabel.of(labelFor(item)),
                     history(), normalizeCrlf, keymap.of([{ key: "Mod-s", run: () => { save().catch(report); return true; } }, ...historyKeymap]),
                     EditorView.updateListener.of(update => {
                         if (!update.docChanged) return;
@@ -194,40 +204,56 @@ function display(item) {
 async function open(path, kind) {
     let item = documents.get(path);
     if (!item) {
-        const owner = workspace;
+        const epoch = viewEpoch;
         const base = await invoke("read_document", {path});
-        if (choosing || owner !== workspace) return;
+        if (choosing || mutating || epoch !== viewEpoch) return;
         item = {path, kind};
         setBase(item, base);
         if (kind === "markdown") {
             try { item.recovered = await invoke("recovery_draft", {path}); }
             catch (error) { report(error); }
         }
-        if (choosing || owner !== workspace) return;
+        if (choosing || mutating || epoch !== viewEpoch) return;
         documents.set(path, item);
     }
     display(item);
 }
 
 async function list(path) {
-    const owner = workspace;
+    const epoch = viewEpoch;
     const entries = await invoke("list_directory", {path});
-    if (owner !== workspace) return;
+    if (epoch !== viewEpoch) return;
     folder = path;
     $("folder").textContent = path || workspace;
     $("up").hidden = !path;
+    $("file-actions").hidden = false;
     $("files").replaceChildren(...entries.map(entry => {
-        const child = path ? path + "/" + entry.name : entry.name;
+        const child = pathInFolder(path, entry.name);
         const row = document.createElement("li");
-        row.append(button(entry.name + (entry.kind === "folder" ? "/" : ""),
-            () => entry.kind === "folder" ? list(child) : open(child, entry.kind)));
+        const openEntry = button(entry.name + (entry.kind === "folder" ? "/" : ""),
+            () => entry.kind === "folder" ? list(child) : open(child, entry.kind));
+        row.append(openEntry);
+        if (entry.kind === "unsupported") {
+            openEntry.disabled = true;
+            openEntry.title = "Links and special files cannot be opened.";
+        } else {
+            const actions = document.createElement("details");
+            const summary = document.createElement("summary");
+            summary.textContent = "Actions";
+            summary.setAttribute("aria-label", `Actions for ${entry.name}`);
+            actions.append(summary);
+            for (const [kind, title] of [["rename", "Rename"], ["move", "Move"], ["duplicate", "Duplicate"], ["trash", "Move to Trash"]]) {
+                actions.append(button(title, () => showEntryDialog({kind, path: child})));
+            }
+            row.append(actions);
+        }
         return row;
     }));
 }
 
 async function save(base = active?.base) {
     const item = active;
-    if (choosing || !item || item.readOnly || item.saving || !dirty(item)) return;
+    if (choosing || mutating || !item || item.readOnly || item.saving || !dirty(item)) return;
     const text = item.text;
     item.saving = true;
     renderDetails();
@@ -254,14 +280,16 @@ async function save(base = active?.base) {
 }
 
 async function refresh() {
-    if (choosing) return;
-    const owner = workspace;
+    if (choosing || mutating) return;
+    const epoch = viewEpoch;
     for (const item of documents.values()) {
         if (item.saving) continue;
         const base = item.base;
+        const path = item.path;
         try {
-            const disk = await invoke("read_document", {path: item.path});
-            if (owner !== workspace || item.saving || item.base !== base) continue;
+            const disk = await invoke("read_document", {path});
+            if (epoch !== viewEpoch || mutating) return;
+            if (item.saving || item.base !== base) continue;
             if (disk.revision === base.revision) {
                 item.conflict = null;
                 continue;
@@ -273,19 +301,157 @@ async function refresh() {
                 if (item === active) display(item);
             }
         } catch (error) {
+            if (epoch !== viewEpoch || mutating) return;
             item.problem = String(error);
         }
     }
     renderDetails();
 }
 
+const entryTitles = {
+    rename: "Rename", move: "Move", duplicate: "Duplicate", trash: "Move to Trash",
+    folder: "New folder", file: "New file",
+};
+
+function showEntryDialog(action) {
+    if (choosing || mutating) return;
+    entryAction = {...action, parent: folder};
+    const {kind, path} = action;
+    const move = kind === "move";
+    const trash = kind === "trash";
+    $("entry-heading").textContent = entryTitles[kind];
+    $("entry-submit").textContent = kind === "folder" || kind === "file" ? "Create" : entryTitles[kind];
+    $("entry-description").hidden = !(move || trash || kind === "duplicate");
+    $("entry-description").textContent = move ? "Enter a folder path relative to the workspace. Leave blank to move to the workspace root." :
+        trash ? `Move ${path} to this workspace's Trash?` :
+        kind === "duplicate" ? "Duplicate the saved version in this folder." : "";
+    $("entry-field").hidden = trash;
+    $("entry-label").textContent = move ? "Destination folder" : "Name";
+    $("entry-name").required = !(move || trash);
+    $("entry-name").value = kind === "rename" ? filename(path) : kind === "file" ? "untitled.md" : "";
+    $("entry-error").hidden = true;
+    $("entry-dialog").showModal();
+    if (trash) $("entry-cancel").focus();
+    else $("entry-name").select();
+}
+
+async function changeEntry(action, name) {
+    const {kind, path, parent} = action;
+    if (kind === "folder" || kind === "file") {
+        return invoke("create_entry", {parent, name, folder: kind === "folder"});
+    }
+    if (kind === "trash") {
+        if ([...documents.keys()].some(open => renamedPath(open, path, "") !== open)) {
+            throw new Error("Close the affected tabs before moving this entry to Trash.");
+        }
+        return invoke("trash_entry", {path});
+    }
+    if (kind === "duplicate") return invoke("duplicate_entry", {path, name});
+
+    const segments = name.split("/");
+    if (kind === "rename" && (!name || segments.length !== 1) ||
+        name && segments.some(part => !part || part === "." || part === "..")) {
+        throw new Error(kind === "rename" ? "Enter a single file or folder name." :
+            "Enter a workspace-relative folder path without a leading or trailing slash.");
+    }
+    const destination = kind === "move" ? pathInFolder(name, filename(path)) : pathInFolder(parent, name);
+    const entries = remapOpenDocuments(documents, path, destination);
+    if (kind === "rename" && documents.has(path) && isMarkdown(path) !== isMarkdown(destination)) {
+        throw new Error("Close the file before changing between Markdown and a reference file.");
+    }
+    const warning = kind === "move" ? await invoke("move_entry", {path, folder: name}) :
+        await invoke("rename_entry", {path, name});
+    documents.clear();
+    for (const [newPath, item] of entries) {
+        item.path = newPath;
+        documents.set(newPath, item);
+    }
+    if (editor) editor.dispatch({effects: editorLabel.reconfigure(labelFor(active))});
+    renderTabs();
+    renderDetails();
+    return warning;
+}
+
+async function renderTrash() {
+    const entries = await invoke("list_trash");
+    $("trash-files").replaceChildren(...entries.map(entry => {
+        const row = document.createElement("li");
+        row.append(button(`Restore ${entry.path}`, () => restoreEntry(entry)));
+        return row;
+    }));
+    if (!entries.length) $("trash-status").textContent = "Trash is empty.";
+}
+
+async function restoreEntry(entry) {
+    if (mutating) return;
+    mutating = true;
+    viewEpoch++;
+    try {
+        if ([...documents.keys()].some(path => path === entry.path || path.startsWith(entry.path + "/"))) {
+            throw new Error("Close the affected tabs before restoring this entry.");
+        }
+        const warning = await invoke("restore_entry", {id: entry.id});
+        await list(folder);
+        await renderTrash();
+        $("trash-status").textContent = warning ?? `Restored ${entry.path}.`;
+        $("trash-close").focus();
+    } catch (error) {
+        $("trash-status").textContent = String(error);
+    } finally {
+        mutating = false;
+    }
+}
+
+$("trash-open").onclick = async () => {
+    if (mutating || choosing) return;
+    $("trash-files").replaceChildren();
+    $("trash-status").textContent = "";
+    $("trash-dialog").showModal();
+    try { await renderTrash(); }
+    catch (error) { $("trash-status").textContent = String(error); }
+};
+$("trash-close").onclick = () => { if (!mutating) $("trash-dialog").close(); };
+$("trash-dialog").oncancel = event => { if (mutating) event.preventDefault(); };
+
+$("new-file").onclick = () => showEntryDialog({kind: "file"});
+$("new-folder").onclick = () => showEntryDialog({kind: "folder"});
+$("entry-cancel").onclick = () => $("entry-dialog").close();
+$("entry-dialog").oncancel = event => { if (mutating) event.preventDefault(); };
+$("entry-form").onsubmit = async event => {
+    event.preventDefault();
+    if (mutating) return;
+    const error = $("entry-error");
+    if ([...documents.values()].some(item => item.saving)) {
+        error.textContent = "Wait for the save to finish.";
+        error.hidden = false;
+        return;
+    }
+    mutating = true;
+    viewEpoch++;
+    $("entry-submit").disabled = $("entry-cancel").disabled = $("entry-name").disabled = true;
+    try {
+        const warning = await changeEntry(entryAction, $("entry-name").value);
+        $("entry-dialog").close();
+        status(warning ?? "");
+        await list(folder).catch(report);
+    } catch (problem) {
+        error.textContent = String(problem);
+        error.hidden = false;
+    } finally {
+        mutating = false;
+        $("entry-submit").disabled = $("entry-cancel").disabled = $("entry-name").disabled = false;
+        if ($("entry-dialog").open) $("entry-name").focus();
+    }
+};
+
 $("choose").onclick = async () => {
-    if (choosing || [...documents.values()].some(item => item.saving)) return;
+    if (choosing || mutating || [...documents.values()].some(item => item.saving)) return;
     if (unsaved() && !window.confirm("Discard your unsaved drafts and open another folder?")) return;
     choosing = true;
     try {
         const selected = await invoke("choose_folder");
         if (!selected) return;
+        viewEpoch++;
         workspace = selected;
         documents.clear();
         active = null;
@@ -325,7 +491,7 @@ $("discard").onclick = async () => {
     } catch (error) { report(error); }
 };
 window.__TAURI__.event.listen("offish-close-request", () => {
-    if ([...documents.values()].some(item => item.saving)) return status("Wait for the save to finish.");
+    if (mutating || [...documents.values()].some(item => item.saving)) return status("Wait for the current operation to finish.");
     if (!unsaved() || window.confirm("Discard unsaved drafts and close Offish?")) invoke("close_offish").catch(report);
 }).catch(report);
 setupPanes();

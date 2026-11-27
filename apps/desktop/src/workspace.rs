@@ -1,3 +1,6 @@
+mod trash;
+pub use trash::TrashEntry;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -182,13 +185,162 @@ impl Workspace {
                 "folder"
             } else if file_type.is_file() && is_markdown(Path::new(&name)) {
                 "markdown"
-            } else {
+            } else if file_type.is_file() {
                 "reference"
+            } else {
+                "unsupported"
             };
             entries.push(Entry { name, kind });
         }
         entries.sort_by(|a, b| (a.kind != "folder", &a.name).cmp(&(b.kind != "folder", &b.name)));
         Ok(entries)
+    }
+
+    pub fn create_entry(
+        &self,
+        parent: &str,
+        name: &str,
+        folder: bool,
+    ) -> io::Result<Option<String>> {
+        let name = entry_name(name)?;
+        let directory = open(
+            &descriptor(&self.directory(Path::new(parent))?).join("."),
+            true,
+        )?;
+        directory.lock()?;
+        let target = descriptor(&directory).join(name);
+        if folder {
+            fs::create_dir(&target)?;
+        } else {
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
+            if let Err(error) = file.sync_all() {
+                return Ok(Some(format!(
+                    "The file was created, but could not be synced: {error}"
+                )));
+            }
+        }
+        Ok(entry_sync_warning(&directory))
+    }
+
+    pub fn rename_entry(&self, path: &str, new_name: &str) -> io::Result<Option<String>> {
+        let new_name = entry_name(new_name)?;
+        let (directory, old_name) = self.parent(path)?;
+        let destination = directory.try_clone()?;
+        self.relocate(directory, &old_name, destination, new_name)
+    }
+
+    pub fn move_entry(&self, path: &str, folder: &str) -> io::Result<Option<String>> {
+        let (source, name) = self.parent(path)?;
+        let destination = self.directory(Path::new(folder))?;
+        self.relocate(source, &name, destination, &name)
+    }
+
+    fn relocate(
+        &self,
+        source: File,
+        old_name: &Path,
+        destination: File,
+        new_name: &Path,
+    ) -> io::Result<Option<String>> {
+        let old_name = checked_leaf(old_name)?;
+        let new_name = checked_leaf(new_name)?;
+        let source = independent_directory(&source)?;
+        let destination = independent_directory(&destination)?;
+        let first = identity(&source.metadata()?);
+        let second = identity(&destination.metadata()?);
+        // All multi-directory operations take the same lock order.
+        match first.cmp(&second) {
+            std::cmp::Ordering::Less => {
+                source.lock()?;
+                destination.lock()?;
+            }
+            std::cmp::Ordering::Greater => {
+                destination.lock()?;
+                source.lock()?;
+            }
+            std::cmp::Ordering::Equal => source.lock()?,
+        }
+        let target = descriptor(&source).join(old_name);
+        let metadata = ordinary_entry(&target)?;
+        if first == second && old_name == new_name {
+            return Ok(None);
+        }
+        if metadata.is_file() {
+            if let Some(recovery) = self.recovery_directory()? {
+                let journals = descriptor(&recovery);
+                let journal = journals.join(self.journal_name(&destination, new_name)?);
+                if read_pending(&journal)?.is_some() {
+                    return Err(invalid(
+                        "The destination has a recovery draft. Choose another destination.",
+                    ));
+                }
+                self.clear_committed_journal(&source, old_name, &recovery)?;
+            }
+        }
+        rename_exclusive(&source, old_name, &destination, new_name)?;
+        let source_warning = entry_sync_warning(&source);
+        Ok(if first == second {
+            source_warning
+        } else {
+            let destination_warning = entry_sync_warning(&destination);
+            source_warning.or(destination_warning)
+        })
+    }
+
+    fn clear_committed_journal(
+        &self,
+        source: &File,
+        name: &Path,
+        recovery: &File,
+    ) -> io::Result<()> {
+        let journal = descriptor(recovery).join(self.journal_name(source, name)?);
+        if let Some(pending) = read_pending(&journal)? {
+            let (_, bytes) = snapshot(&descriptor(source).join(name))?;
+            if bytes != pending.text.as_bytes() {
+                return Err(invalid(
+                    "Resolve the interrupted save before changing this file's location.",
+                ));
+            }
+            fs::remove_file(journal)?;
+            recovery.sync_all()?;
+        }
+        Ok(())
+    }
+
+    pub fn duplicate_entry(&self, path: &str, new_name: &str) -> io::Result<Option<String>> {
+        let new_name = entry_name(new_name)?;
+        let (directory, old_name) = self.parent(path)?;
+        let directory = independent_directory(&directory)?;
+        directory.lock()?;
+        let original = descriptor(&directory).join(checked_leaf(&old_name)?);
+        ordinary_entry(&original)?;
+        let destination = descriptor(&directory).join(new_name);
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "An entry already uses that name.",
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        if let Some(recovery) = self.recovery_directory()? {
+            let journal = descriptor(&recovery).join(self.journal_name(&directory, new_name)?);
+            if read_pending(&journal)?.is_some() {
+                return Err(invalid(
+                    "The destination has a recovery draft. Choose another name.",
+                ));
+            }
+        }
+        let stage = stage_directory(&directory)?;
+        let container = open(&stage.0, true)?;
+        copy_entry(&original, &descriptor(&container).join("copy"))?;
+        rename_exclusive(&container, Path::new("copy"), &directory, new_name)?;
+        Ok(entry_sync_warning(&directory))
     }
 
     pub fn read(&self, path: &str) -> io::Result<Document> {
@@ -361,6 +513,135 @@ impl Drop for Staged {
     }
 }
 
+fn checked_leaf(path: &Path) -> io::Result<&Path> {
+    entry_name(path.to_str().ok_or_else(|| invalid("Invalid filename."))?)
+}
+
+fn identity(metadata: &Metadata) -> (u64, u64) {
+    (metadata.dev(), metadata.ino())
+}
+
+fn independent_directory(directory: &File) -> io::Result<File> {
+    open(&descriptor(directory).join("."), true)
+}
+
+fn ordinary_entry(path: &Path) -> io::Result<Metadata> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(invalid("Only ordinary files and folders are supported."));
+    }
+    Ok(metadata)
+}
+
+fn rename_exclusive(source: &File, old: &Path, destination: &File, new: &Path) -> io::Result<()> {
+    let old = CString::new(old.as_os_str().as_encoded_bytes())?;
+    let new = CString::new(new.as_os_str().as_encoded_bytes())?;
+    // The kernel checks for an existing destination as part of the rename.
+    if unsafe {
+        libc::renameat2(
+            source.as_raw_fd(),
+            old.as_ptr(),
+            destination.as_raw_fd(),
+            new.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn stage_directory(directory: &File) -> io::Result<StagedDirectory> {
+    let parent = descriptor(directory);
+    loop {
+        let path = parent.join(format!(
+            ".offish-save-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        match DirBuilder::new().mode(0o700).create(&path) {
+            Ok(()) => return Ok(StagedDirectory(path)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+struct StagedDirectory(PathBuf);
+impl StagedDirectory {
+    fn retain(mut self) {
+        self.0.clear();
+    }
+}
+impl Drop for StagedDirectory {
+    fn drop(&mut self) {
+        if !self.0.as_os_str().is_empty() {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+}
+
+fn copy_entry(source: &Path, destination: &Path) -> io::Result<()> {
+    let metadata = ordinary_entry(source)?;
+    let mut input = open(source, metadata.is_dir())?;
+    if identity(&input.metadata()?) != identity(&metadata) {
+        return Err(io::Error::other(
+            "The source changed while opening it. Try again.",
+        ));
+    }
+    let output = if metadata.is_dir() {
+        DirBuilder::new().mode(0o700).create(destination)?;
+        let output = open(destination, true)?;
+        for child in fs::read_dir(descriptor(&input))? {
+            let child = child?;
+            let name = child.file_name();
+            if name.as_encoded_bytes().starts_with(b".offish-save-") {
+                continue;
+            }
+            copy_entry(&child.path(), &descriptor(&output).join(name))?;
+        }
+        output
+    } else {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(destination)?;
+        io::copy(&mut input, &mut output)?;
+        output
+    };
+    preserve_metadata(&input, &output, &metadata)?;
+    output.sync_all()?;
+    let after = input.metadata()?;
+    if (after.ctime(), after.ctime_nsec(), after.len())
+        != (metadata.ctime(), metadata.ctime_nsec(), metadata.len())
+    {
+        return Err(io::Error::other(
+            "The source changed during duplication. Try again.",
+        ));
+    }
+    Ok(())
+}
+
+fn entry_sync_warning(directory: &File) -> Option<String> {
+    directory.sync_all().err().map(|error| {
+        format!("The change is visible, but its directory could not be synced: {error}")
+    })
+}
+
+fn entry_name(name: &str) -> io::Result<&Path> {
+    let path = Path::new(name);
+    if name.is_empty()
+        || name.contains(['/', '\0'])
+        || name.starts_with(".offish-save-")
+        || !matches!(path.components().next(), Some(Component::Normal(_)))
+    {
+        return Err(invalid("Enter a single file or folder name."));
+    }
+    Ok(path)
+}
+
 fn is_markdown(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -464,7 +745,10 @@ fn attributes(file: &File) -> io::Result<BTreeMap<CString, Vec<u8>>> {
         .split(|&byte| byte == 0)
         .filter(|name| !name.is_empty())
     {
-        if !name.starts_with(b"user.") && name != b"system.posix_acl_access" {
+        if !name.starts_with(b"user.")
+            && name != b"system.posix_acl_access"
+            && name != b"system.posix_acl_default"
+        {
             return Err(invalid(
                 "The file has an unsupported security or filesystem attribute. The draft remains unsaved.",
             ));
@@ -571,6 +855,9 @@ mod tests {
             Some("draft")
         );
         assert_eq!(reopened.list("").unwrap().len(), 1);
+        let rename = reopened.rename_entry("brief.md", "renamed.md").unwrap_err();
+        assert!(rename.to_string().contains("Resolve the interrupted save"));
+        assert!(!root.join("renamed.md").exists());
         let disk = reopened.read("brief.md").unwrap();
         assert_eq!(disk.text.as_deref(), Some("external"));
         assert!(

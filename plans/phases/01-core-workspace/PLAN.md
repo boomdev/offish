@@ -64,6 +64,9 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T05 | WS-01, WS-02, ED-01 | Explorer mutations and reopened settings preserve intended file identity and contents. Destructive operations have a recoverable path where supported and explain limits otherwise. |
 | P1-T06 | WS-03, NFR-02, NFR-04 | Exclusions and authorization hold after external edits and index rebuild. On the reference hardware, record warm search p95 against 300 ms and cold explorer startup on 10,000 files against 3 s. |
 | P1-T07 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | Complete the source flow by keyboard, record AT-SPI behavior, commit real IME text and reload it intact, and measure keystroke-to-paint p95 against 50 ms on 50,000 words in WebKitGTK. Record any required change to the shell or target for explicit review. |
+| P1-T05a | WS-01, WS-02, ED-01 | Create and rename files and folders within the workspace. Reject invalid paths and collisions without touching existing entries. An open tab and its unsaved draft follow a rename. |
+| P1-T05b | WS-01, WS-02, ED-01 | Move a file or folder within the workspace, retaining open drafts. Duplicate saved files and folder trees independently. Reject collisions and unsupported entries before publishing a copy. |
+| P1-T05c | WS-01, WS-02, NFR-03, NFR-04 | Move to private Trash and restore after reopening the workspace. A collision at the original path leaves both entries intact. If the filesystem cannot move the entry to Trash, leave it in place. |
 | P1-T07a | ED-01, NFR-05 | The caret is visible in light and dark themes. Resize each side pane with mouse and arrow keys while keeping the editor usable. Close active and background tabs, with confirmation before discarding a dirty draft. |
 | P1-T08 | NFR-01, NFR-06 | Locked builds and fixture checks pass in CI. The development package and notices match the audited dependency set. Record Windows and macOS environments and owners for Phase 2. |
 
@@ -88,7 +91,8 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
 | P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
 | P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
-| P1-05–P1-07 | Planned | Explorer mutations and settings, search, and native editor acceptance remain open. |
+| P1-05 | In progress | The maintainer verified create and rename (P1-T05a). Move, duplicate, and recoverable Trash pass Btrfs backend and tab remapping tests (P1-T05b–T05c). Native confirmation of the new actions and local workspace settings remain open. |
+| P1-06–P1-07 | Planned | Search and native editor acceptance remain open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
@@ -117,3 +121,34 @@ follow-ups. P1-T07a covers the follow-up checks.
   disposable VM or equivalent storage test. The session has no QEMU or KVM
   available. Non-cooperating writers retain the final check-to-rename race
   documented in ADR-0002.
+
+
+### P1-T05a explorer follow-up
+
+The Omarchy Btrfs tests verify creation, rejection of invalid names and
+links, no replacement of existing entries, and saving against the original
+revision after both file and enclosing-folder renames. An unresolved save
+recovery draft blocks a file rename. Frontend tests verify that tab remapping
+retains the draft and revision, leaves unrelated tabs alone, and refuses a
+destination already open in another tab. The locked desktop build and
+frontend bundle passed. The maintainer confirmed the native walkthrough.
+
+
+### P1-T05b–T05c explorer follow-up
+
+- Move preserves the file revision and keeps open drafts attached to the
+  same tab. The backend takes directory locks in stable order and requests
+  a no-replacement rename. A destination conflict, invalid path, or move
+  into a descendant leaves the source in place.
+- Duplicate copies saved bytes into a private staging directory and publishes
+  only after the copy succeeds. Linked and special entries in the source
+  tree cause duplication to fail. A copied file has its own identity.
+- Trash records the original path before moving the entry into private
+  recovery storage outside the workspace. Restore works after reopening
+  the workspace and refuses to overwrite. Cross-volume Trash and restore
+  require filesystem support for atomic rename. An unsupported rename fails
+  with the source intact. Trash has no permanent deletion control yet.
+- On Omarchy Btrfs, all 13 Rust tests passed, including file and folder
+  restore after reopening and collision preservation. Frontend remapping
+  tests, editor bundle and locked desktop build passed. Native UI
+  verification remains open for the three new actions.

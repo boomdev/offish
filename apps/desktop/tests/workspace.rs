@@ -175,3 +175,177 @@ fn invalid_utf8_and_unsupported_edit_targets_remain_unchanged() {
     );
     assert_eq!(fs::read(root.0.join("bad.md")).unwrap(), [0xff]);
 }
+
+#[test]
+fn explorer_creates_entries_without_replacing_existing_files() {
+    let root = Fixture::new();
+    let workspace = Workspace::open(&root.0).unwrap();
+    workspace.create_entry("", "Notes", true).unwrap();
+    workspace.create_entry("Notes", "brief.md", false).unwrap();
+    assert_eq!(
+        workspace.read("Notes/brief.md").unwrap().text.as_deref(),
+        Some("")
+    );
+    fs::write(root.0.join("Notes/brief.md"), "original").unwrap();
+    assert!(workspace.create_entry("Notes", "brief.md", false).is_err());
+    assert!(workspace.create_entry("", "Notes", true).is_err());
+    for name in ["../escaped.md", "sub/file", ".", "..", "", ".offish-save-x"] {
+        assert!(workspace.create_entry("", name, false).is_err(), "{name}");
+    }
+    symlink("/tmp", root.0.join("outside")).unwrap();
+    assert!(
+        workspace
+            .create_entry("outside", "escaped.md", false)
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.0.join("Notes/brief.md")).unwrap(),
+        b"original"
+    );
+}
+
+#[test]
+fn explorer_rename_keeps_identity_and_refuses_collisions_and_links() {
+    let root = Fixture::new();
+    let workspace = Workspace::open(&root.0).unwrap();
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    fs::write(root.0.join("Notes/brief.md"), "original").unwrap();
+    fs::write(root.0.join("Notes/occupied.md"), "occupied").unwrap();
+    let base = workspace.read("Notes/brief.md").unwrap();
+    assert!(
+        workspace
+            .rename_entry("Notes/brief.md", "occupied.md")
+            .is_err()
+    );
+    assert!(
+        workspace
+            .rename_entry("Notes/brief.md", "../outside.md")
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.0.join("Notes/occupied.md")).unwrap(),
+        b"occupied"
+    );
+    workspace
+        .rename_entry("Notes/brief.md", "révisé.md")
+        .unwrap();
+    workspace.rename_entry("Notes", "Archive").unwrap();
+    let after = workspace.read("Archive/révisé.md").unwrap();
+    assert_eq!(after.revision, base.revision);
+    assert!(matches!(
+        workspace
+            .save("Archive/révisé.md", &base.revision, "draft")
+            .unwrap(),
+        Save::Saved { .. }
+    ));
+    assert_eq!(
+        fs::read(root.0.join("Archive/révisé.md")).unwrap(),
+        b"draft"
+    );
+    symlink("Archive/révisé.md", root.0.join("link")).unwrap();
+    assert!(workspace.rename_entry("link", "renamed").is_err());
+    assert!(
+        fs::symlink_metadata(root.0.join("link"))
+            .unwrap()
+            .is_symlink()
+    );
+}
+
+#[test]
+fn explorer_moves_within_workspace_and_keeps_the_open_revision() {
+    let root = Fixture::new();
+    let workspace = Workspace::open(&root.0).unwrap();
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    fs::create_dir(root.0.join("Archive")).unwrap();
+    fs::write(root.0.join("Notes/brief.md"), "original").unwrap();
+    fs::write(root.0.join("Archive/brief.md"), "occupied").unwrap();
+    let base = workspace.read("Notes/brief.md").unwrap();
+
+    assert!(workspace.move_entry("Notes/brief.md", "Archive").is_err());
+    assert!(workspace.move_entry("Notes", "Notes").is_err());
+    assert!(workspace.move_entry("Notes/brief.md", "..").is_err());
+    assert_eq!(
+        fs::read(root.0.join("Archive/brief.md")).unwrap(),
+        b"occupied"
+    );
+    workspace.move_entry("Notes/brief.md", "").unwrap();
+    assert_eq!(workspace.read("brief.md").unwrap().revision, base.revision);
+    assert!(matches!(
+        workspace
+            .save("brief.md", &base.revision, "unsaved draft")
+            .unwrap(),
+        Save::Saved { .. }
+    ));
+    assert!(!root.0.join("Notes/brief.md").exists());
+}
+
+#[test]
+fn explorer_duplicates_independent_trees_and_never_publishes_failed_copies() {
+    let root = Fixture::new();
+    let workspace = Workspace::open(&root.0).unwrap();
+    fs::create_dir_all(root.0.join("Notes/sub")).unwrap();
+    let original = root.0.join("Notes/sub/brief.md");
+    fs::write(&original, "original").unwrap();
+    workspace.duplicate_entry("Notes", "Copy").unwrap();
+    workspace
+        .duplicate_entry("Notes/sub/brief.md", "duplicate.md")
+        .unwrap();
+    let copied = root.0.join("Copy/sub/brief.md");
+    assert_eq!(fs::read(&copied).unwrap(), b"original");
+    assert_eq!(
+        fs::read(root.0.join("Notes/sub/duplicate.md")).unwrap(),
+        b"original"
+    );
+    assert_ne!(
+        fs::metadata(&original).unwrap().ino(),
+        fs::metadata(&copied).unwrap().ino()
+    );
+    fs::write(copied, "copy edit").unwrap();
+    assert_eq!(fs::read(&original).unwrap(), b"original");
+    assert!(workspace.duplicate_entry("Notes", "Copy").is_err());
+    symlink("brief.md", root.0.join("Notes/sub/link")).unwrap();
+    assert!(workspace.duplicate_entry("Notes", "Broken").is_err());
+    assert!(!root.0.join("Broken").exists());
+    assert_eq!(fs::read_dir(&root.0).unwrap().count(), 2);
+}
+
+#[test]
+fn explorer_trash_survives_reopen_and_restores_without_replacing() {
+    let root = Fixture::new();
+    let private = Fixture::new();
+    fs::set_permissions(&private.0, fs::Permissions::from_mode(0o700)).unwrap();
+    let workspace = Workspace::open(&root.0)
+        .unwrap()
+        .with_recovery(private.0.clone());
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    fs::write(root.0.join("Notes/brief.md"), "original").unwrap();
+    let base = workspace.read("Notes/brief.md").unwrap();
+    workspace.trash_entry("Notes").unwrap();
+    assert!(!root.0.join("Notes").exists());
+    drop(workspace);
+    let reopened = Workspace::open(&root.0)
+        .unwrap()
+        .with_recovery(private.0.clone());
+    let items = reopened.list_trash().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].path, "Notes");
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    assert!(reopened.restore_entry(&items[0].id).is_err());
+    assert!(root.0.join("Notes").is_dir());
+    assert_eq!(reopened.list_trash().unwrap().len(), 1);
+    fs::remove_dir(root.0.join("Notes")).unwrap();
+    reopened.restore_entry(&items[0].id).unwrap();
+    assert!(reopened.list_trash().unwrap().is_empty());
+    assert_eq!(
+        reopened.read("Notes/brief.md").unwrap().revision,
+        base.revision
+    );
+    reopened.trash_entry("Notes/brief.md").unwrap();
+    let file = reopened.list_trash().unwrap().pop().unwrap();
+    assert_eq!(file.path, "Notes/brief.md");
+    reopened.restore_entry(&file.id).unwrap();
+    assert_eq!(
+        reopened.read("Notes/brief.md").unwrap().revision,
+        base.revision
+    );
+}

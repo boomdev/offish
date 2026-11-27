@@ -24,7 +24,7 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-          node --test tests/layout.test.mjs
+          node --test tests/*.test.mjs
       - name: Check Rust formatting and workspace behavior
         run: |
           cargo fmt --all --check
