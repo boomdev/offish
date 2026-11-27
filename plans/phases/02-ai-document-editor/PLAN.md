@@ -167,7 +167,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-01 | Complete | Profile v1 is documented. UTF-16 and absolute byte ranges round-trip, and revision-bound edits use the existing workspace save path. |
 | P2-02 | Complete | The maintainer verified live preview, table source reveal, and independent scrolling on Omarchy. Native paint timing remains open under P2-T02. |
 | P2-03 | Complete | The maintainer confirmed the Omarchy check and pushed the changes. |
-| P2-04 | In progress | The single-document workspace backend and restart fixtures pass. Verify checkpoint behavior across file moves and the outstanding native durability and platform gates. |
+| P2-04 | In progress | The Linux backend passes acceptance, restore and checkpoint relocation fixtures. Native durability and cross-platform verification remain open. |
 | P2-05 | Planned | Connect deterministic proposals, review controls, and the editor undo boundary to the workspace backend. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
@@ -266,7 +266,29 @@ The locked Rust suite passed 40 tests. The P2-T01 and P2-T03 fixtures
 check byte-exact restore with BOM, CRLF and Unicode, rebase, competing
 acceptances, history retention and deletion, and subprocess exit before
 and after both acceptance and restore. The native power-loss and
-cross-platform gates remain open. File moves currently change the
-path-based history lookup. Verify how history follows a file before
-exposing review in the editor. P2-05 will connect the backend to the
+cross-platform gates remain open. P2-05 will connect the backend to the
 review UI and seal the editor undo history on acceptance.
+
+### P2-04 checkpoint relocation
+
+For CHG-01, WS-02 and NFR-03, transfer checkpoint lookup when Offish
+renames a file or moves it between workspace directories. Record the
+source and destination in private storage before the file rename, and
+reconcile an interrupted move using the file's directory entry and
+identity. Under P2-T03, verify restore after relocation and restart,
+including cases where the original name is reused or the destination
+already exists.
+
+Offish-managed renames and same-workspace moves now preserve the original
+checkpoint store. A private location index records the planned move
+before the document changes paths. On restart, Offish resolves the entry
+using the original file identity. A new file at the former path starts
+its own history. A move performed outside Offish can leave the history
+at the previous location. Unexpected changes that leave the moving file
+at neither recorded location preserve the private history for recovery.
+
+The locked suite passed 44 desktop-feature Rust tests and 41 Rust tests
+with desktop features disabled. The P2-T03 fixtures cover restart
+before and after the rename, a renamed containing folder, an independent
+history at the reused original path, and a destination collision both
+before and after the move is recorded.

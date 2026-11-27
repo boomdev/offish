@@ -4,6 +4,8 @@ use super::*;
 use crate::markdown::SourceEdit;
 use std::collections::BTreeSet;
 
+mod locations;
+
 #[cfg(test)]
 mod tests;
 
@@ -220,6 +222,13 @@ struct Store(File);
 
 impl Store {
     fn open(private: &File, name: &str, create: bool) -> io::Result<Option<Self>> {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+        {
+            return Err(invalid("Invalid checkpoint store name."));
+        }
         let path = descriptor(private).join(format!("review-{name}"));
         if create {
             match DirBuilder::new().mode(0o700).create(&path) {
@@ -248,11 +257,7 @@ impl Store {
         name: &str,
         write: impl FnOnce(&mut File) -> io::Result<()>,
     ) -> io::Result<()> {
-        let (mut file, stage) = stage_file(&self.0)?;
-        write(&mut file)?;
-        file.sync_all()?;
-        stage.replace(&descriptor(&self.0).join(name))?;
-        self.0.sync_all()
+        write_private(&self.0, name, write)
     }
 
     fn load(&self) -> io::Result<Journal> {
@@ -401,6 +406,18 @@ impl Store {
     }
 }
 
+fn write_private(
+    directory: &File,
+    name: &str,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
+    let (mut file, stage) = stage_file(directory)?;
+    write(&mut file)?;
+    file.sync_all()?;
+    stage.replace(&descriptor(directory).join(name))?;
+    directory.sync_all()
+}
+
 impl Journal {
     fn keep(&mut self, checkpoint: Checkpoint) {
         self.checkpoints.push(checkpoint);
@@ -418,7 +435,7 @@ impl Workspace {
         create: bool,
     ) -> io::Result<Option<Store>> {
         let name = self.journal_name(&locked.directory, &locked.name)?;
-        Store::open(private, &name, create)
+        locations::lookup(private, locked, &name, create)
     }
 
     pub(super) fn check_review_pending(

@@ -249,7 +249,8 @@ fn crash_fixture() {
     let workspace = Workspace::open(&Path::new(&root).join("workspace"))
         .unwrap()
         .with_recovery(Path::new(&root).join("private"));
-    let hook = |step| match (std::env::var("OFFISH_REVIEW_STEP").unwrap().as_str(), step) {
+    let at = std::env::var("OFFISH_REVIEW_STEP").unwrap();
+    let hook = |step| match (at.as_str(), step) {
         ("before", SaveStep::JournalSynced) => std::process::exit(73),
         ("after", SaveStep::Replaced) => std::process::exit(75),
         _ => Ok(()),
@@ -265,6 +266,19 @@ fn crash_fixture() {
             let id = workspace.review_history(PATH).unwrap().checkpoints[0].id;
             workspace
                 .restore_with_hook(PATH, &revision, id, hook)
+                .unwrap();
+        }
+        "move" => {
+            let (source, name) = workspace.parent(PATH).unwrap();
+            let destination = workspace.directory(Path::new("moved")).unwrap();
+            workspace
+                .relocate(source, &name, destination, &name, |step| {
+                    match (at.as_str(), step) {
+                        ("before", MoveStep::Prepared) => std::process::exit(73),
+                        ("after", MoveStep::Renamed) => std::process::exit(75),
+                        _ => Ok(()),
+                    }
+                })
                 .unwrap();
         }
         _ => panic!("invalid fixture operation"),
@@ -382,4 +396,169 @@ fn independent_handles_cannot_accept_twice_against_one_revision() {
     });
     assert_eq!(accepted, 1);
     assert_eq!(first.review_history(PATH).unwrap().checkpoints.len(), 1);
+}
+
+#[test]
+fn checkpoints_follow_rename_and_move_with_an_independent_history_at_the_old_name() {
+    let fixture = Fixture::new();
+    let workspace = fixture.open();
+    let (revision, checkpoint, _) = commit(&workspace, &proposal(&workspace), "seats");
+
+    fs::create_dir(fixture.0.join("workspace/moved")).unwrap();
+    assert!(
+        workspace
+            .rename_entry(PATH, "renamed.md")
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        workspace
+            .move_entry("renamed.md", "moved")
+            .unwrap()
+            .is_none()
+    );
+    workspace.rename_entry("moved", "renamed-folder").unwrap();
+    fs::write(fixture.document(), ORIGINAL).unwrap();
+
+    let reopened = fixture.open();
+    assert!(
+        reopened
+            .review_history(PATH)
+            .unwrap()
+            .checkpoints
+            .is_empty()
+    );
+    assert!(reopened.review_preimage(PATH, checkpoint).is_err());
+    let (new_revision, new_checkpoint, _) = commit(&reopened, &proposal(&reopened), "marker");
+    let moved = "renamed-folder/renamed.md";
+    assert_eq!(reopened.read(moved).unwrap().revision, revision);
+    assert_eq!(
+        reopened.review_history(moved).unwrap().checkpoints[0].id,
+        checkpoint
+    );
+    assert_eq!(
+        reopened.review_preimage(moved, checkpoint).unwrap(),
+        ORIGINAL
+    );
+    assert!(matches!(
+        reopened
+            .restore_checkpoint(moved, &revision, checkpoint)
+            .unwrap(),
+        Save::Saved { .. }
+    ));
+    assert_eq!(
+        reopened.read(moved).unwrap().text.as_deref(),
+        Some(ORIGINAL)
+    );
+    assert_eq!(reopened.read(PATH).unwrap().revision, new_revision);
+    assert_eq!(
+        reopened.review_history(PATH).unwrap().checkpoints[0].id,
+        new_checkpoint
+    );
+}
+
+#[test]
+fn process_exit_before_or_after_move_preserves_checkpoint_lookup() {
+    let fixture = Fixture::new();
+    let workspace = fixture.open();
+    fs::create_dir(fixture.0.join("workspace/moved")).unwrap();
+    let moved = "moved/brief.md";
+    let (revision, checkpoint, _) = commit(&workspace, &proposal(&workspace), "seats");
+
+    fixture.crash("move", "before", 73);
+    let reopened = fixture.open();
+    assert!(
+        reopened
+            .review_history(moved)
+            .unwrap()
+            .checkpoints
+            .is_empty()
+    );
+    assert_eq!(
+        reopened.review_history(PATH).unwrap().checkpoints[0].id,
+        checkpoint
+    );
+
+    fixture.crash("move", "after", 75);
+    let restarted = fixture.open();
+    fs::write(fixture.document(), "Replacement file\n").unwrap();
+    assert!(
+        restarted
+            .review_history(PATH)
+            .unwrap()
+            .checkpoints
+            .is_empty()
+    );
+    let current = restarted.review_history(moved).unwrap();
+    assert_eq!(current.checkpoints[0].id, checkpoint);
+    assert!(current.checkpoints[0].restorable);
+    assert!(matches!(
+        restarted
+            .restore_checkpoint(moved, &revision, checkpoint)
+            .unwrap(),
+        Save::Saved { .. }
+    ));
+    assert_eq!(
+        restarted.read(moved).unwrap().text.as_deref(),
+        Some(ORIGINAL)
+    );
+    assert_eq!(
+        restarted.read(PATH).unwrap().text.as_deref(),
+        Some("Replacement file\n")
+    );
+}
+
+#[test]
+fn destination_collision_does_not_change_either_history() {
+    let fixture = Fixture::new();
+    let workspace = fixture.open();
+    commit(&workspace, &proposal(&workspace), "seats");
+    let mut other = proposal(&workspace);
+    other.path = "other.md".into();
+    fs::write(fixture.0.join("workspace/other.md"), ORIGINAL).unwrap();
+    other.base_revision = workspace.read("other.md").unwrap().revision;
+    commit(&workspace, &other, "marker");
+
+    assert_eq!(
+        workspace.rename_entry(PATH, "other.md").unwrap_err().kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        workspace.review_history(PATH).unwrap().checkpoints[0].hunk_ids,
+        ["seats"]
+    );
+    assert_eq!(
+        workspace.review_history("other.md").unwrap().checkpoints[0].hunk_ids,
+        ["marker"]
+    );
+}
+
+#[test]
+fn a_destination_created_after_preparation_cancels_only_the_move() {
+    let fixture = Fixture::new();
+    let workspace = fixture.open();
+    let (_, checkpoint, _) = commit(&workspace, &proposal(&workspace), "seats");
+    let (source, name) = workspace.parent(PATH).unwrap();
+    let destination = workspace.directory(Path::new("")).unwrap();
+    let occupied = fixture.0.join("workspace/late.md");
+    let result = workspace.relocate(source, &name, destination, Path::new("late.md"), |step| {
+        if step == MoveStep::Prepared {
+            fs::write(&occupied, "External file\n")?;
+        }
+        Ok(())
+    });
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(
+        workspace.review_history(PATH).unwrap().checkpoints[0].id,
+        checkpoint
+    );
+    assert!(
+        workspace
+            .review_history("late.md")
+            .unwrap()
+            .checkpoints
+            .is_empty()
+    );
+    assert_eq!(fs::read_to_string(occupied).unwrap(), "External file\n");
+    assert_eq!(workspace.read(PATH).unwrap().text.as_deref(), Some(PARTIAL));
 }

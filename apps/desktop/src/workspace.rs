@@ -261,13 +261,13 @@ impl Workspace {
         let new_name = entry_name(new_name)?;
         let (directory, old_name) = self.parent(path)?;
         let destination = directory.try_clone()?;
-        self.relocate(directory, &old_name, destination, new_name)
+        self.relocate(directory, &old_name, destination, new_name, |_| Ok(()))
     }
 
     pub fn move_entry(&self, path: &str, folder: &str) -> io::Result<Option<String>> {
         let (source, name) = self.parent(path)?;
         let destination = self.directory(Path::new(folder))?;
-        self.relocate(source, &name, destination, &name)
+        self.relocate(source, &name, destination, &name, |_| Ok(()))
     }
 
     fn relocate(
@@ -276,6 +276,7 @@ impl Workspace {
         old_name: &Path,
         destination: File,
         new_name: &Path,
+        mut hook: impl FnMut(MoveStep) -> io::Result<()>,
     ) -> io::Result<Option<String>> {
         let old_name = checked_leaf(old_name)?;
         let new_name = checked_leaf(new_name)?;
@@ -300,26 +301,58 @@ impl Workspace {
         if first == second && old_name == new_name {
             return Ok(None);
         }
-        if metadata.is_file() {
-            if let Some(recovery) = self.recovery_directory()? {
-                let journals = descriptor(&recovery);
-                let journal = journals.join(self.journal_name(&destination, new_name)?);
-                if read_pending(&journal)?.is_some() {
-                    return Err(invalid(
-                        "The destination has a recovery draft. Choose another destination.",
-                    ));
-                }
-                self.clear_committed_journal(&source, old_name, &recovery)?;
+        let source = LockedTarget {
+            directory: source,
+            name: old_name.into(),
+        };
+        let destination = LockedTarget {
+            directory: destination,
+            name: new_name.into(),
+        };
+        let review_move = if metadata.is_file()
+            && let Some(recovery) = self.recovery_directory()?
+        {
+            let journal =
+                descriptor(&recovery).join(self.journal_name(&destination.directory, new_name)?);
+            if read_pending(&journal)?.is_some() {
+                return Err(invalid(
+                    "The destination has a recovery draft. Choose another destination.",
+                ));
             }
+            self.clear_committed_journal(&source.directory, old_name, &recovery)?;
+            self.prepare_review_move(&recovery, &source, &destination, &metadata)?
+        } else {
+            None
+        };
+        hook(MoveStep::Prepared)?;
+        if let Err(error) = rename_exclusive(
+            &source.directory,
+            old_name,
+            &destination.directory,
+            new_name,
+        ) {
+            if let Some(pending) = review_move {
+                let _ = pending.finish(None);
+            }
+            return Err(error);
         }
-        rename_exclusive(&source, old_name, &destination, new_name)?;
-        let source_warning = entry_sync_warning(&source);
-        Ok(if first == second {
+        hook(MoveStep::Renamed)?;
+        let source_warning = entry_sync_warning(&source.directory);
+        let warning = if first == second {
             source_warning
         } else {
-            let destination_warning = entry_sync_warning(&destination);
+            let destination_warning = entry_sync_warning(&destination.directory);
             source_warning.or(destination_warning)
-        })
+        };
+        if warning.is_none()
+            && let Some(pending) = review_move
+            && let Err(error) = pending.finish(Some(&destination))
+        {
+            return Ok(Some(format!(
+                "The entry moved, but its checkpoint location could not be finalized: {error}"
+            )));
+        }
+        Ok(warning)
     }
 
     fn clear_committed_journal(
@@ -552,6 +585,12 @@ impl Workspace {
 struct LockedTarget {
     directory: File,
     name: PathBuf,
+}
+
+#[derive(PartialEq, Eq)]
+enum MoveStep {
+    Prepared,
+    Renamed,
 }
 
 impl LockedTarget {
