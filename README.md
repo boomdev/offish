@@ -23,6 +23,12 @@ configuration. **File → Close Workspace** returns to the saved workspace
 chooser. **File → Open Folder** starts a single-folder workspace, and
 **File → Open File** opens a document directly.
 
+Use **Edit → Find in Workspace** or Ctrl+Shift+F to search saved UTF-8 text
+across all open roots. Select a result to jump to the matching line.
+Search rechecks disk changes and reads each root’s nested `.gitignore` and
+`.offishignore` rules. **Rebuild Index** clears the in-memory cache and scans
+the roots again. The dialog shows when the scan ran and reports scan limits.
+
 Use a disposable copy of the pilot fixtures for the first run. Select a Markdown file, edit
 the source, and use **File → Save** or Ctrl+S. Hover or focus a folder row
 in the Files pane to show its **New file** and **New folder** icons. Use the

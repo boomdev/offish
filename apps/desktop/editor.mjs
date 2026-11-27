@@ -5,7 +5,7 @@ import { fitPanes, paneWidth } from "./layout.mjs";
 import { dialogButtonIndex, floatingMenu } from "./menu.mjs";
 import { ancestorFolders, paneDestination, tabCycleIndex } from "./pane-focus.mjs";
 
-import { displayPath, isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, treeCommand, workspaceFilePath } from "./explorer.mjs";
+import { displayPath, isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, searchSelection, treeCommand, workspaceFilePath } from "./explorer.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const $ = id => document.getElementById(id);
@@ -18,6 +18,7 @@ let active = null;
 let editor = null;
 let choosing = false;
 let mutating = false;
+let searching = false;
 let viewEpoch = 0;
 let entryAction = null;
 let treeFocusPath = null;
@@ -253,6 +254,7 @@ async function open(path, kind) {
         documents.set(path, item);
     }
     display(item);
+    return item;
 }
 
 function updateTreeSelection() {
@@ -635,6 +637,95 @@ $("trash-open").onclick = async () => {
 $("trash-close").onclick = () => { if (!mutating) $("trash-dialog").close(); };
 $("trash-dialog").oncancel = event => { if (mutating) event.preventDefault(); };
 
+function showSearch() {
+    const dialog = $("search-dialog");
+    if (!workspace || choosing || mutating || document.querySelector("dialog[open]")) return;
+    const roots = (branches.get("") ?? []).filter(entry => entry.kind === "root").length;
+    menus.close();
+    $("search-scope").textContent = `${workspace} · ${roots} available ${roots === 1 ? "root" : "roots"} · Saved UTF-8 text`;
+    $("search-results").replaceChildren();
+    $("search-status").textContent = searching ? "Finishing the previous scan…" : "";
+    dialog.showModal();
+    $("search-query").select();
+}
+
+async function jumpToSearchResult(result) {
+    const item = await open(result.path, result.kind);
+    if (!item || active !== item) return;
+    $("search-dialog").close();
+    if (editor) {
+        const selection = searchSelection(editor.state.doc, result);
+        editor.dispatch({selection, scrollIntoView: true});
+        if (selection.head === undefined) status("This match no longer aligns with the open document.");
+    }
+    focusEditorView();
+}
+
+function renderSearchResults(report, query) {
+    const results = $("search-results");
+    results.replaceChildren(...report.results.map(result => {
+        const row = document.createElement("li");
+        const match = button("", () => jumpToSearchResult(result)
+            .catch(error => { $("search-status").textContent = String(error); }));
+        const title = document.createElement("strong");
+        title.textContent = `${shownPath(result.path)}:${result.line}`;
+        const preview = document.createElement("span");
+        preview.textContent = result.preview;
+        match.title = workspaceFilePath(result.path, branches.get("") ?? []) ?? title.textContent;
+        match.append(title, preview);
+        row.append(match);
+        return row;
+    }));
+    const count = report.results.length;
+    const matchStatus = !query ? "Index rebuilt" :
+        report.more_matches ? `Showing first ${count} matches` :
+        count === 0 ? "No matches" : `${count} ${count === 1 ? "match" : "matches"}`;
+    const details = [
+        matchStatus, `${report.files} ${report.files === 1 ? "file" : "files"} ${query ? "searched" : "indexed"}`,
+        `Scanned at ${new Date(report.scanned_at * 1000).toLocaleTimeString()}`,
+    ];
+    if (report.skipped) details.push(`${report.skipped} skipped`);
+    if (report.limited) details.push("Scan limit reached");
+    $("search-status").textContent = details.join(" · ");
+    (results.firstElementChild?.firstElementChild ?? $("search-query")).focus();
+}
+
+$("search-results").addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return;
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const row = event.target.closest("li");
+    if (!row) return;
+    event.preventDefault();
+    const next = event.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling;
+    next?.firstElementChild.focus();
+});
+
+$("search-close").onclick = () => $("search-dialog").close();
+$("search-form").onsubmit = async event => {
+    event.preventDefault();
+    if (searching) return;
+    const query = $("search-query").value.trim();
+    const rebuild = event.submitter === $("search-rebuild");
+    if (!query && !rebuild) {
+        $("search-status").textContent = "Enter text to search.";
+        return;
+    }
+    searching = true;
+    const epoch = viewEpoch;
+    $("search-results").replaceChildren();
+    $("search-status").textContent = rebuild ? "Rebuilding index…" : "Searching…";
+    $("search-submit").disabled = $("search-rebuild").disabled = true;
+    try {
+        const report = await invoke("search_workspace", {query, rebuild});
+        if (epoch === viewEpoch && $("search-dialog").open) renderSearchResults(report, query);
+    } catch (error) {
+        if ($("search-dialog").open) $("search-status").textContent = String(error);
+    } finally {
+        searching = false;
+        $("search-submit").disabled = $("search-rebuild").disabled = false;
+    }
+};
+
 $("workspace-rename").onclick = () => showEntryDialog({kind: "workspace"});
 $("entry-cancel").onclick = () => $("entry-dialog").close();
 $("entry-dialog").oncancel = event => { if (mutating) event.preventDefault(); };
@@ -687,6 +778,8 @@ function setWorkspace(name) {
     branches.clear();
     documents.clear();
     active = null;
+    $("search-query").value = "";
+    $("search-results").replaceChildren();
     editor?.destroy();
     editor = null;
     $("editor").textContent = "Select a file.";
@@ -788,7 +881,18 @@ function requestClose() {
 }
 
 document.addEventListener("keydown", event => {
-    if (event.altKey || event.metaKey || event.shiftKey || event.isComposing) return;
+    if (event.altKey || event.metaKey || event.isComposing) return;
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "f" && workspace) {
+        if ($("search-dialog").open) {
+            event.preventDefault();
+            $("search-query").focus();
+        } else if (!document.querySelector("dialog[open]")) {
+            event.preventDefault();
+            showSearch();
+        }
+        return;
+    }
+    if (event.shiftKey) return;
     const dialog = event.target.closest?.("dialog[open]");
     if (dialog && !event.ctrlKey && event.target.matches("button") &&
         (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
@@ -924,6 +1028,8 @@ $("edit-menu").onclick = () => {
         {label: "Cut", run: () => clipboardAction("cut"), disabled: !editable || !selection},
         {label: "Copy", run: () => clipboardAction("copy"), disabled: !selection},
         {label: "Paste", run: () => clipboardAction("paste"), disabled: !editable},
+        null,
+        {label: "Find in Workspace…", run: showSearch, disabled: !workspace},
     ]);
 };
 for (const menu of [$("file-menu"), $("edit-menu")]) {

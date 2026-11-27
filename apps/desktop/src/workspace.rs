@@ -1,3 +1,4 @@
+pub mod search;
 mod trash;
 pub use trash::TrashEntry;
 

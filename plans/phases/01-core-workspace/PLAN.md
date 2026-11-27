@@ -36,6 +36,9 @@ Carry base revision, draft and observed disk revision separately. A clean buffer
 
 Preserve untouched Markdown bytes, including newline conventions and a BOM. Give invalid or unsupported input an explicit read-only state. Store private recovery and index data outside the opened folder. Pin and audit dependencies before packaging.
 
+The first search slice uses the in-memory index described in
+[ADR-0006](../../decisions/ADR-0006-phase-1-search-index.md).
+
 ## 6. Implementation tasks
 
 | Task | Requirements | Depends on | Owner | Result |
@@ -63,6 +66,8 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T04 | WS-02, NFR-03, NFR-04 | Process exits around replacement, disk-full and permission failures, symlink and identity changes, and supported mode, owner, ACL and extended-attribute cases preserve or recover the expected data. Validate power-loss behavior on a disposable filesystem or VM and document the proven guarantee. |
 | P1-T05 | WS-01, WS-02, ED-01 | Explorer mutations and reopened settings preserve intended file identity and contents. Destructive operations have a recoverable path where supported and explain limits otherwise. |
 | P1-T06 | WS-03, NFR-02, NFR-04 | Exclusions and authorization hold after external edits and index rebuild. On the reference hardware, record warm search p95 against 300 ms and cold explorer startup on 10,000 files against 3 s. |
+| P1-T06a | WS-03, ED-01, NFR-04 | Search saved UTF-8 text across available roots. Show root, file, line, scope and scan freshness. Jump to the match without changing an unsaved draft. |
+| P1-T06b | WS-03, NFR-02, NFR-04 | Revalidate the bounded in-memory index on every search, provide a rebuild action, and verify exclusions, external edits, deletes, and link containment. Measure before adopting persistent storage. |
 | P1-T07 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | Complete the source flow by keyboard, record AT-SPI behavior, commit real IME text and reload it intact, and measure keystroke-to-paint p95 against 50 ms on 50,000 words in WebKitGTK. Record any required change to the shell or target for explicit review. |
 | P1-T05a | WS-01, WS-02, ED-01 | Create and rename files and folders within the workspace. Reject invalid paths and collisions without touching existing entries. An open tab and its unsaved draft follow a rename. |
 | P1-T05b | WS-01, WS-02, ED-01 | Move a file or folder within the workspace, retaining open drafts. Duplicate saved files and folder trees independently. Reject collisions and unsupported entries before publishing a copy. |
@@ -97,7 +102,8 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
 | P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
 | P1-05 | Implemented, native smoke passed | The maintainer verified create and rename (P1-T05a) and confirmed move, duplicate, and recoverable Trash in the native app (P1-T05b–T05c). The maintainer also confirmed that the Omarchy workspace smoke test passed (P1-T05d and workspace naming in P1-T07e). |
-| P1-06–P1-07 | Planned | Search remains planned. P1-T07b implements the tree, tabs, and application menus. Native verification of that UI and the broader editor acceptance checks remain open. |
+| P1-06 | Implemented, native smoke passed | The maintainer confirmed native search works. Multi-root search, exclusions, revalidation, and index rebuild pass automated checks. Native search navigation, explorer startup, and performance acceptance remain open. |
+| P1-07 | In progress | P1-T07b implements the tree, tabs, and application menus. Native verification of remaining shortcuts, IME, assistive technology, and editor performance is open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
@@ -185,6 +191,38 @@ roots while the draft remains open. Save, exit, and relaunch without a folder
 argument. Confirm the same roots reappear in order. Choose **File → Close
 Workspace**, check that the saved tiles appear below **Create Workspace**,
 and reopen the workspace from its tile.
+
+### P1-T06 local workspace search
+
+**Edit → Find in Workspace** and Ctrl+Shift+F search saved UTF-8 text in
+the available roots. Results show the root, relative path, and line number.
+Selecting a result opens its tab and highlights the match if it still
+aligns with the open text. Search focuses the first result, Up and Down
+move between results, and Enter opens the focused result. Ctrl+Shift+F
+returns focus to the query while the dialog is open. **Rebuild Index**
+discards cached text and scans the roots again.
+
+The locked build and Rust and frontend suites passed. Rust tests cover
+ordered multi-root matches, nested ignore rules, private paths, symlinks,
+invalid input, external edits and deletion, and rebuild. Frontend tests
+verify UTF-16 coordinates and the fallback when a draft has moved a
+match. A mocked-bridge check verified search dialog invocation, result
+display, and opening a result. It also verified first-result focus, Up and
+Down at both ends of the list, and query focus when there are no matches.
+
+On 27 November 2026, a release backend run on Btrfs and an Intel Core
+i5-1135G7 searched 10,000 files of roughly 1 KiB each. An empty index
+scanned in about 77 ms. Across 20 alternating warm queries with zero and
+100 matches, p50 was 30 ms and p95 was 45 ms. The OS page cache was warm
+from fixture creation. These are backend timings. They exclude GTK,
+bridge and rendering latency.
+
+Run the timing fixture with
+`TMPDIR="$PWD" cargo test --locked --no-default-features --release search_timing_fixture -- --ignored --nocapture`.
+GTK initialization blocked the sandbox's native run. The maintainer
+confirmed search works on Omarchy and that Ctrl+Shift+F returns focus to
+the query from the results. Native Up/Down navigation, end-to-end timing,
+peak memory, and cold explorer startup measurement remain open.
 
 ### P1-T07b workspace UX
 

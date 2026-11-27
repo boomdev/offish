@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 
+use offish::workspace::search::{SearchIndex, SearchRoot};
 use offish::workspace::{Save, Workspace};
 use offish::workspaces::{ActiveWorkspace, CatalogStore, canonical_roots};
 use std::{
@@ -35,6 +36,161 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+#[test]
+fn search_respects_root_boundaries_nested_rules_and_private_storage() {
+    let fixture = Fixture::new();
+    let outside = Fixture::new();
+    let root = fixture.0.join("one");
+    let second = fixture.0.join("two");
+    let private = root.join("app-config");
+    for dir in [
+        &root,
+        &second,
+        &private,
+        &root.join("nested"),
+        &root.join(".git"),
+        &root.join("scratch"),
+    ] {
+        fs::create_dir(dir).unwrap();
+    }
+    fs::write(
+        root.join(".gitignore"),
+        "*.tmp\n/scratch/\n!keep.tmp\n**/log?.txt\n",
+    )
+    .unwrap();
+    fs::write(root.join(".offishignore"), "*.[xy]\n\\#hidden.txt\n").unwrap();
+    fs::write(root.join("nested/.gitignore"), "!again.tmp\n").unwrap();
+    for path in [
+        "brief.md",
+        "keep.tmp",
+        "nested/again.tmp",
+        "scratch/notes.md",
+        "gone.tmp",
+        "nested/gone.tmp",
+        "nested/log1.txt",
+        "app-config/secrets.txt",
+        ".git/metadata",
+        "excluded.x",
+        "#hidden.txt",
+        ".offish-save-session",
+    ] {
+        fs::write(root.join(path), "a Finding").unwrap();
+    }
+    fs::write(second.join("brief.md"), "A finding").unwrap();
+    fs::write(outside.0.join("outside.md"), "a Finding").unwrap();
+    symlink(&outside.0, root.join("symlink-dir")).unwrap();
+    symlink(outside.0.join("outside.md"), root.join("symlink.md")).unwrap();
+
+    let roots = [(&root, 0), (&second, 2), (&private, 3)]
+        .map(|(path, index)| SearchRoot::new(index, &Workspace::open(path).unwrap()).unwrap());
+    let mut search = SearchIndex::default();
+    for rebuild in [false, true] {
+        let report = search
+            .search(&roots, std::slice::from_ref(&private), "FINDING", rebuild)
+            .unwrap();
+        let paths: Vec<_> = report.results.iter().map(|hit| hit.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "root-0/brief.md",
+                "root-0/keep.tmp",
+                "root-0/nested/again.tmp",
+                "root-2/brief.md"
+            ]
+        );
+        assert!(!report.limited);
+    }
+
+    fs::write(root.join("nested/.offishignore"), "/again.tmp\n").unwrap();
+    let refreshed = search.search(&roots, &[private], "finding", false).unwrap();
+    assert!(
+        !refreshed
+            .results
+            .iter()
+            .any(|hit| hit.path.ends_with("/again.tmp"))
+    );
+}
+
+#[test]
+fn search_updates_metadata_cache_and_reports_editor_coordinates() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("brief.md");
+    fs::write(&path, "\u{feff}😀 NÉEDLE\r\nsecond line\n").unwrap();
+    fs::write(fixture.0.join("invalid.md"), [0xff, 0xfe]).unwrap();
+    fs::write(fixture.0.join("nul.md"), "needle\0").unwrap();
+    let root = Workspace::open(&fixture.0).unwrap();
+    let roots = [SearchRoot::new(0, &root).unwrap()];
+    let mut search = SearchIndex::default();
+    let first = search.search(&roots, &[], "néedle", false).unwrap();
+    assert_eq!(first.results.len(), 1);
+    assert_eq!(first.skipped, 2);
+    assert_eq!((first.results[0].line, first.results[0].column), (1, 3));
+    assert_eq!(first.results[0].matched, "NÉEDLE");
+
+    fs::write(&path, "first\r\n😀 NÉEDLE NÉEDLE\r\n").unwrap();
+    let updated = search.search(&roots, &[], "néedle", false).unwrap();
+    assert_eq!(
+        updated
+            .results
+            .iter()
+            .map(|hit| (hit.line, hit.column))
+            .collect::<Vec<_>>(),
+        [(2, 3), (2, 10)]
+    );
+    fs::remove_file(&path).unwrap();
+    assert!(
+        search
+            .search(&roots, &[], "néedle", false)
+            .unwrap()
+            .results
+            .is_empty()
+    );
+    fs::write(fixture.0.join("new.md"), "néedle\n".repeat(300)).unwrap();
+    let limited = search.search(&roots, &[], "néedle", true).unwrap();
+    assert_eq!(limited.results.len(), 250);
+    assert!(limited.more_matches);
+}
+
+#[test]
+#[ignore = "run explicitly for the P1-T06 timing fixture"]
+fn search_timing_fixture() {
+    use std::time::Instant;
+
+    let fixture = Fixture::new();
+    let content = "Local workspace search fixture. Topic: example.\n".repeat(20);
+    let with_match = format!("{content}needle\n");
+    for i in 0..10_000 {
+        let text = if i % 100 == 0 { &with_match } else { &content };
+        fs::write(fixture.0.join(format!("file-{i:05}.md")), text).unwrap();
+    }
+    let workspace = Workspace::open(&fixture.0).unwrap();
+    let roots = [SearchRoot::new(0, &workspace).unwrap()];
+    let mut search = SearchIndex::default();
+    let start = Instant::now();
+    let cold = search.search(&roots, &[], "absent", true).unwrap();
+    assert_eq!(cold.files, 10_000);
+    let cold_duration = start.elapsed();
+    let mut warm = Vec::new();
+    for i in 0..20 {
+        let (query, matches) = if i % 2 == 0 {
+            ("needle", 100)
+        } else {
+            ("absent", 0)
+        };
+        let start = Instant::now();
+        let report = search.search(&roots, &[], query, false).unwrap();
+        warm.push(start.elapsed());
+        assert_eq!(report.files, 10_000);
+        assert_eq!(report.results.len(), matches);
+        assert!(!report.limited);
+    }
+    warm.sort_unstable();
+    eprintln!(
+        "10,000 files. Cold cache {cold_duration:?}. Warm p50 {:?}, p95 {:?}.",
+        warm[9], warm[18]
+    );
 }
 
 #[test]

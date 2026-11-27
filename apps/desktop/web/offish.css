@@ -242,6 +242,19 @@ textarea { display: block; width: 100%; margin: .4rem 0; font: inherit; }
 dialog { background: var(--surface); color: inherit; border: 1px solid var(--line); }
 dialog::backdrop { background: #0006; }
 #entry-dialog input { display: block; margin: .3rem 0 .8rem; font: inherit; }
+#search-dialog { width: min(42rem, calc(100% - 2rem)); max-height: 80vh; }
+#search-form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+#search-form label { width: 100%; }
+#search-query { flex: 1; min-width: 8rem; font: inherit; }
+#search-scope, #search-status, #search-results span { color: var(--muted); font-size: .85rem; }
+#search-results {
+  max-height: 46vh;
+  overflow-y: auto;
+  /* Leave space beside results even when the scrollbar overlays the list. */
+  padding-inline-end: 1.25rem;
+}
+#search-results strong, #search-results span { display: block; white-space: pre-wrap; }
+#search-results button:focus-visible { outline-offset: -2px; }
 
 #entry-description { max-width: 28rem; }
 

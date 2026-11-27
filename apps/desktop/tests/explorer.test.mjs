@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {displayPath, remapOpenDocuments, treeCommand, workspaceFilePath} from "../explorer.mjs";
+import {Text} from "@codemirror/state";
+import {displayPath, remapOpenDocuments, searchSelection, treeCommand, workspaceFilePath} from "../explorer.mjs";
+
+test("search jumps use UTF-16 editor offsets and validate the actual open text", () => {
+    const hit = {line: 2, column: 3, matched: "NÉEDLE"};
+    const doc = Text.of(["first", "😀 NÉEDLE more"]);
+    assert.deepEqual(searchSelection(doc, hit), {anchor: 9, head: 15});
+    assert.deepEqual(searchSelection(Text.of(["first", "draft text"]), hit), {anchor: 6});
+    assert.deepEqual(searchSelection(Text.of(["draft only"]), {...hit, line: 10}), {anchor: 0});
+});
 
 test("root labels are shown without exposing routing IDs", () => {
     const roots = [{name: "root-0", label: "Notes"}, {name: "root-1", label: "Project"}];

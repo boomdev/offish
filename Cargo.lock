@@ -2224,6 +2224,7 @@ version = "0.1.0"
 dependencies = [
  "gtk",
  "libc",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.11.2",

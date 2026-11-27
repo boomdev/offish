@@ -35,6 +35,16 @@ export function isMarkdown(path) {
     return /.+\.(?:md|markdown)$/i.test(name);
 }
 
+export function searchSelection(doc, {line: number, column, matched}) {
+    const line = doc.line(Math.min(number, doc.lines));
+    const anchor = line.from + column;
+    const head = anchor + matched.length;
+    if (line.number !== number || head > line.to || doc.sliceString(anchor, head) !== matched) {
+        return {anchor: line.from};
+    }
+    return {anchor, head};
+}
+
 export function treeCommand(rows, index, key, shift = false, actionFocused = false) {
     const row = rows[index];
     if (!row || row.disabled) return null;

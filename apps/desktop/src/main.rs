@@ -1,9 +1,14 @@
 #[cfg(target_os = "linux")]
 mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
+    use offish::workspace::search::{SearchIndex, SearchReport, SearchRoot};
     use offish::workspace::{Document, Entry, Save, TrashEntry, Workspace};
     use offish::workspaces::{ActiveWorkspace, CatalogStore, SavedWorkspace, canonical_roots};
-    use std::{io, path::PathBuf, sync::Mutex};
+    use std::{
+        io,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+    };
     use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
     type Current = Mutex<Runtime>;
@@ -14,14 +19,21 @@ mod linux {
         recovery: PathBuf,
         active: Option<ActiveWorkspace>,
         warning: Option<String>,
+        search: Arc<Mutex<SearchIndex>>,
+        private_paths: Vec<PathBuf>,
     }
 
     impl Runtime {
         fn activate(&mut self, record: SavedWorkspace) -> String {
             let name = record.name();
-            self.active = Some(ActiveWorkspace::open(record, &self.recovery));
+            self.replace_workspace(Some(ActiveWorkspace::open(record, &self.recovery)));
             self.warning = None;
             name
+        }
+
+        fn replace_workspace(&mut self, workspace: Option<ActiveWorkspace>) {
+            self.active = workspace;
+            self.search = Arc::default();
         }
 
         fn remember(&mut self, paths: Vec<PathBuf>) -> io::Result<SavedWorkspace> {
@@ -189,7 +201,7 @@ mod linux {
                 Ok(())
             })
             .map_err(|error| error.to_string())?;
-        current.active = None;
+        current.replace_workspace(None);
         Ok(())
     }
 
@@ -249,7 +261,7 @@ mod linux {
             .update(|catalog| catalog.remember(workspace.record.roots.clone()))
             .map_err(|error| error.to_string())?;
         let name = workspace.record.name();
-        current.active = Some(workspace);
+        current.replace_workspace(Some(workspace));
         current.warning = None;
         Ok(Some(PickedFile {
             workspace: name,
@@ -338,6 +350,36 @@ mod linux {
             let (_, root, relative) = workspace.route(&path)?;
             root.list(relative)
         })
+    }
+
+    #[tauri::command]
+    async fn search_workspace(
+        state: State<'_, Current>,
+        query: String,
+        rebuild: bool,
+    ) -> Response<SearchReport> {
+        let (index, roots, private_paths) = {
+            let current = state.lock().map_err(|error| error.to_string())?;
+            let active = current.active.as_ref().ok_or("Open a workspace first.")?;
+            let roots = active
+                .available_roots()
+                .map(|(index, root)| SearchRoot::new(index, root))
+                .collect::<io::Result<Vec<_>>>()
+                .map_err(|error| error.to_string())?;
+            (
+                Arc::clone(&current.search),
+                roots,
+                current.private_paths.clone(),
+            )
+        };
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut index = index.try_lock().map_err(|_| "Workspace search is busy.")?;
+            index
+                .search(&roots, &private_paths, &query, rebuild)
+                .map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())?
     }
 
     #[tauri::command]
@@ -491,11 +533,15 @@ mod linux {
     pub fn run() {
         tauri::Builder::default()
             .setup(|app| {
+                let config = app.path().app_config_dir()?;
+                let data = app.path().app_local_data_dir()?;
                 let mut current = Runtime {
-                    catalog: CatalogStore::new(app.path().app_config_dir()?),
-                    recovery: app.path().app_local_data_dir()?.join("recovery"),
+                    catalog: CatalogStore::new(config.clone()),
+                    recovery: data.join("recovery"),
                     active: None,
                     warning: None,
+                    search: Arc::default(),
+                    private_paths: vec![config, data],
                 };
                 if let Some(path) = std::env::args_os().nth(1) {
                     match current.remember(vec![PathBuf::from(path)]) {
@@ -535,6 +581,7 @@ mod linux {
                 rename_workspace,
                 close_workspace,
                 list_directory,
+                search_workspace,
                 create_entry,
                 rename_entry,
                 move_entry,
