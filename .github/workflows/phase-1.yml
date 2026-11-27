@@ -1,0 +1,33 @@
+name: Phase 1 workspace
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install desktop build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Bundle source editor
+        working-directory: apps/desktop
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          node --test tests/layout.test.mjs
+      - name: Check Rust formatting and workspace behavior
+        run: |
+          cargo fmt --all --check
+          cargo test --locked --no-default-features
+      - name: Build native desktop
+        run: cargo build --locked

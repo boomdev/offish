@@ -1,0 +1,43 @@
+:root {
+  color-scheme: light dark;
+  font: 15px/1.5 system-ui, sans-serif;
+  color: light-dark(#182635, #e8edf1);
+  background: light-dark(#f4f6f8, #17212a);
+  --surface: light-dark(#fff, #202c36);
+  --line: light-dark(#ced9e2, #425263);
+  --accent: light-dark(#12578a, #9ad2ff);
+}
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; display: flex; flex-direction: column; }
+header, #tabs { display: flex; align-items: center; gap: .65rem; padding: .6rem 1rem; border-bottom: 1px solid var(--line); }
+header strong { color: var(--accent); font-size: 1.25rem; margin-right: .7rem; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); border-radius: .3rem; background: var(--surface); color: inherit; padding: .3rem .7rem; }
+button:hover:not(:disabled), button[aria-current="true"] { border-color: var(--accent); }
+button:disabled { cursor: default; opacity: .6; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: var(--files-width, 20%) 8px minmax(280px, 1fr) 8px var(--details-width, 22%); }
+nav, aside { padding: 0 1rem; overflow: auto; overflow-wrap: anywhere; }
+h2 { font-size: .9rem; }
+main { display: flex; flex-direction: column; min-width: 0; background: var(--surface); }
+#tabs { overflow-x: auto; }
+#tabs button { white-space: nowrap; }
+#editor { flex: 1; min-height: 0; overflow: hidden; }
+#editor p { margin: 1rem; }
+.cm-editor { height: 100%; }
+.cm-scroller { overflow: auto; }
+ul { list-style: none; padding: 0; }
+li button { display: block; width: 100%; text-align: left; margin-bottom: .3rem; overflow-wrap: anywhere; }
+textarea { display: block; width: 100%; margin: .4rem 0; font: inherit; }
+#conflict button { margin: .25rem 0; }
+
+.pane-divider {
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(90deg, transparent 3px, var(--line) 3px 4px, transparent 4px);
+}
+.pane-divider:hover, .pane-divider:active { background: var(--accent); }
+.pane-divider:focus-visible { outline-offset: -2px; }
+.tab { display: flex; flex: 0 0 auto; gap: .15rem; }
+.tab .tab-close { padding-inline: .55rem; }
+#editor .cm-content { caret-color: var(--accent); }
+#editor .cm-cursor, #editor .cm-dropCursor { border-left-color: var(--accent); }

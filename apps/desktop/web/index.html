@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Offish</title>
+  <link rel="stylesheet" href="offish.css">
+</head>
+<body>
+  <header>
+    <strong>Offish</strong>
+    <button id="choose">Open folder…</button>
+    <button id="save" disabled>Save</button>
+    <span id="status" role="status"></span>
+  </header>
+  <div class="workspace">
+    <nav id="files-pane" aria-label="Workspace files">
+      <h2>Files</h2>
+      <p id="folder">No folder open</p>
+      <button id="up" hidden>Parent folder</button>
+      <ul id="files"></ul>
+    </nav>
+    <div id="files-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Files pane" aria-controls="files-pane"></div>
+    <main aria-label="Source editor">
+      <div id="tabs" aria-label="Open documents"></div>
+      <div id="editor"><p>Open a folder to start editing Markdown.</p></div>
+    </main>
+    <div id="details-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Details pane" aria-controls="details-pane"></div>
+    <aside id="details-pane" aria-label="Document details">
+      <h2>Details</h2>
+      <p id="details">Select a document.</p>
+      <section id="recovery" hidden>
+        <h3>Interrupted save</h3>
+        <button id="recover">Load recovered draft</button>
+        <button id="discard">Discard recovered draft</button>
+      </section>
+      <section id="conflict" hidden>
+        <h3>File changed on disk</h3>
+        <p id="conflict-message">Your draft is kept in the editor. Compare it with the disk version below.</p>
+        <label for="disk">Disk version</label>
+        <textarea id="disk" readonly rows="10"></textarea>
+        <button id="reload">Use disk version</button>
+        <button id="keep">Keep draft and save</button>
+      </section>
+    </aside>
+  </div>
+  <script type="module" src="editor.js"></script>
+</body>
+</html>

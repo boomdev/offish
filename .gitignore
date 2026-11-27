@@ -1,0 +1,4 @@
+/target/
+/apps/desktop/node_modules/
+/apps/desktop/web/editor.js
+/apps/desktop/gen/

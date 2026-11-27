@@ -1,0 +1,27 @@
+[package]
+name = "offish"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:gtk"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", optional = true }
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "=0.11.2"
+tauri = { version = "=2.12.7", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "=0.18.2", optional = true }
+
+[[bin]]
+name = "offish"
+path = "src/main.rs"
+required-features = ["desktop"]

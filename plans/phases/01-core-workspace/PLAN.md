@@ -1,6 +1,6 @@
 # Phase 1 — Core workspace
 
-Status: Ready for implementation. Phase 0 closed on 27 November 2026.  
+Status: In progress. Phase 0 closed on 27 November 2026.\
 Owner: Project maintainer. Task roles below name the accountable workstream.  
 Master requirements: WS-01–03, ED-01, DOC-01, NFR-01–06.  
 [Master plan](../../MASTER_PLAN.md) · [Phase 0 closeout](../00-research-and-architecture/PLAN.md#12-phase-0-closeout) · [Phase 0 evidence](../../research/phase-0/README.md)
@@ -64,6 +64,7 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T05 | WS-01, WS-02, ED-01 | Explorer mutations and reopened settings preserve intended file identity and contents. Destructive operations have a recoverable path where supported and explain limits otherwise. |
 | P1-T06 | WS-03, NFR-02, NFR-04 | Exclusions and authorization hold after external edits and index rebuild. On the reference hardware, record warm search p95 against 300 ms and cold explorer startup on 10,000 files against 3 s. |
 | P1-T07 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | Complete the source flow by keyboard, record AT-SPI behavior, commit real IME text and reload it intact, and measure keystroke-to-paint p95 against 50 ms on 50,000 words in WebKitGTK. Record any required change to the shell or target for explicit review. |
+| P1-T07a | ED-01, NFR-05 | The caret is visible in light and dark themes. Resize each side pane with mouse and arrow keys while keeping the editor usable. Close active and background tabs, with confirmation before discarding a dirty draft. |
 | P1-T08 | NFR-01, NFR-06 | Locked builds and fixture checks pass in CI. The development package and notices match the audited dependency set. Record Windows and macOS environments and owners for Phase 2. |
 
 ## 9. Risks and open questions
@@ -81,4 +82,20 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 
 ## 11. Progress tracking
 
-P1-01–P1-08 are planned. Phase 0 sign-off satisfies the implementation entry gate. Record evidence beside each task ID as work lands.
+| Task | Status | Evidence or remaining work |
+| --- | --- | --- |
+| P1-01 | Implemented, native check open | Linux desktop build, folder picker, explorer and three panels. Backend tests pass for scoped reads. The maintainer reported the native Omarchy smoke test worked. The detailed P1-T01 checks remain open. |
+| P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
+| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. Verify the native conflict flow and clean reload. |
+| P1-04 | In progress | Private interrupted-save drafts survive process exit before replacement. Verify interruption after replacement, power loss and metadata. Files with ACLs, extended attributes or multiple hard links are refused for now. |
+| P1-05–P1-07 | Planned | Explorer mutations and settings, search, and native editor acceptance remain open. |
+| P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
+
+27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
+dependencies installed from the local cache and the editor bundle built.
+The Wayland launch stopped at GTK initialization in the command sandbox.
+Native desktop acceptance remains open.
+
+The maintainer reported a successful native smoke test on Omarchy and
+identified caret contrast, pane resizing, and tab closing as usability
+follow-ups. P1-T07a covers the follow-up checks.
