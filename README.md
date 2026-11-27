@@ -22,9 +22,11 @@ a conflicting disk version while the draft remains in the editor.
 An interrupted save can leave a recovery copy. Reopen the file and select
 **Load recovered draft** to inspect it.
 
-The current Linux build supports ordinary local files and refuses saves
-that would lose ACLs, extended attributes, or hard links. Recovery storage
-must be outside the opened folder. Open a project folder rather than your
+The Linux build preserves owner, group, mode, POSIX access ACLs and
+`user.*` extended attributes on ordinary local files. It refuses saves when
+those attributes cannot be preserved, a file has another extended attribute
+type, or a file has multiple hard links. Recovery storage must be outside
+the opened folder. Open a project folder rather than your
 entire home directory. See the [Phase 1 plan](plans/phases/01-core-workspace/PLAN.md)
 for guarantees under test and remaining tasks.
 

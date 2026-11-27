@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
+    ffi::{CStr, CString},
     fs::{self, DirBuilder, File, Metadata, OpenOptions},
     io::{self, Read, Write},
     os::{
@@ -196,15 +198,15 @@ impl Workspace {
     }
 
     pub fn save(&self, path: &str, base: &str, text: &str) -> io::Result<Save> {
-        self.save_after_journal(path, base, text, || Ok(()))
+        self.save_with_hook(path, base, text, |_| Ok(()))
     }
 
-    fn save_after_journal(
+    fn save_with_hook(
         &self,
         path: &str,
         base: &str,
         text: &str,
-        after_journal: impl FnOnce() -> io::Result<()>,
+        mut hook: impl FnMut(SaveStep) -> io::Result<()>,
     ) -> io::Result<Save> {
         if !is_markdown(Path::new(path))
             || text.len() as u64 > LIMIT
@@ -255,6 +257,7 @@ impl Workspace {
             }
         }
         let (mut staged, stage) = stage_file(&directory)?;
+        hook(SaveStep::StageWrite)?;
         staged.write_all(text.as_bytes())?;
         let source = open(&target, false)?;
         if source.metadata()?.ino() != metadata.ino() || source.metadata()?.dev() != metadata.dev()
@@ -273,7 +276,7 @@ impl Workspace {
             pending.replace(journal)?;
             recovery.sync_all()?;
         }
-        after_journal()?;
+        hook(SaveStep::JournalSynced)?;
         let (current, bytes) = snapshot(&target)?;
         if revision(&current, &bytes) != base {
             return Ok(Save::Conflict {
@@ -287,6 +290,7 @@ impl Workspace {
         }
         // A non-cooperating external writer can still race this final check.
         stage.replace(&target)?;
+        hook(SaveStep::Replaced)?;
         directory.sync_all()?;
         if let (Some(recovery), Some(journal)) = (&recovery, &journal) {
             // If cleanup fails, reading the journal can still recognize the committed bytes.
@@ -298,6 +302,13 @@ impl Workspace {
             revision: revision(&staged.metadata()?, text.as_bytes()),
         })
     }
+}
+
+#[derive(PartialEq, Eq)]
+enum SaveStep {
+    StageWrite,
+    JournalSynced,
+    Replaced,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -417,19 +428,84 @@ fn preserve_metadata(source: &File, staged: &File, metadata: &Metadata) -> io::R
             return Err(io::Error::last_os_error());
         }
     }
-    // Keep the existing file mode, and stop safely if extra metadata needs a policy.
-    for file in [source, staged] {
-        let size = unsafe { libc::flistxattr(file.as_raw_fd(), std::ptr::null_mut(), 0) };
-        if size < 0 {
+    let wanted = attributes(source)?;
+    let inherited = attributes(staged)?;
+    for name in inherited.keys() {
+        if !wanted.contains_key(name) && unsafe { libc::fremovexattr(fd, name.as_ptr()) } != 0 {
             return Err(io::Error::last_os_error());
         }
-        if size > 0 {
-            return Err(invalid(
-                "The file or its destination has extended attributes or ACLs. The draft remains unsaved.",
-            ));
+    }
+    for (name, value) in &wanted {
+        if inherited.get(name) != Some(value) {
+            set_attribute(staged, name, value)?;
         }
     }
     if unsafe { libc::fchmod(fd, metadata.mode() & 0o7777) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = staged.metadata()?;
+    if (result.uid(), result.gid(), result.mode() & 0o7777)
+        != (metadata.uid(), metadata.gid(), metadata.mode() & 0o7777)
+        || attributes(staged)? != wanted
+    {
+        return Err(io::Error::other(
+            "The filesystem could not preserve the file metadata.",
+        ));
+    }
+    Ok(())
+}
+
+fn attributes(file: &File) -> io::Result<BTreeMap<CString, Vec<u8>>> {
+    let fd = file.as_raw_fd();
+    let names =
+        read_attribute_bytes(|buffer, size| unsafe { libc::flistxattr(fd, buffer.cast(), size) })?;
+    let mut result = BTreeMap::new();
+    for name in names
+        .split(|&byte| byte == 0)
+        .filter(|name| !name.is_empty())
+    {
+        if !name.starts_with(b"user.") && name != b"system.posix_acl_access" {
+            return Err(invalid(
+                "The file has an unsupported security or filesystem attribute. The draft remains unsaved.",
+            ));
+        }
+        let name = CString::new(name).map_err(io::Error::other)?;
+        let value = read_attribute_bytes(|buffer, size| unsafe {
+            libc::fgetxattr(fd, name.as_ptr(), buffer, size)
+        })?;
+        result.insert(name, value);
+    }
+    Ok(result)
+}
+
+fn read_attribute_bytes(read: impl Fn(*mut libc::c_void, usize) -> isize) -> io::Result<Vec<u8>> {
+    let size = read(std::ptr::null_mut(), 0);
+    if size < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if size == 0 {
+        return Ok(Vec::new());
+    }
+    let mut bytes = vec![0; size as usize];
+    let count = read(bytes.as_mut_ptr().cast(), bytes.len());
+    if count < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    bytes.truncate(count as usize);
+    Ok(bytes)
+}
+
+fn set_attribute(file: &File, name: &CStr, value: &[u8]) -> io::Result<()> {
+    let status = unsafe {
+        libc::fsetxattr(
+            file.as_raw_fd(),
+            name.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+        )
+    };
+    if status != 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
@@ -442,6 +518,7 @@ mod tests {
     #[test]
     fn interrupted_save_recovers_the_draft_without_overwriting_disk() {
         const CHILD_ROOT: &str = "OFFISH_TEST_INTERRUPTED_SAVE_ROOT";
+        const CHILD_STEP: &str = "OFFISH_TEST_INTERRUPTED_SAVE_STEP";
         if let Some(root) = std::env::var_os(CHILD_ROOT) {
             let root = PathBuf::from(root);
             let workspace = Workspace::open(&root.join("workspace"))
@@ -449,8 +526,16 @@ mod tests {
                 .with_recovery(root.join("private"));
             let initial = workspace.read("brief.md").unwrap();
             workspace
-                .save_after_journal("brief.md", &initial.revision, "draft", || {
-                    std::process::exit(73)
+                .save_with_hook("brief.md", &initial.revision, "draft", |step| {
+                    let at = if std::env::var(CHILD_STEP).as_deref() == Ok("replaced") {
+                        SaveStep::Replaced
+                    } else {
+                        SaveStep::JournalSynced
+                    };
+                    if at == step {
+                        std::process::exit(73);
+                    }
+                    Ok(())
                 })
                 .unwrap();
             panic!("interruption hook was not called");
@@ -463,15 +548,19 @@ mod tests {
         let private = base.join("private");
         fs::create_dir(&root).unwrap();
         fs::write(root.join("brief.md"), "original").unwrap();
-        let child = std::process::Command::new(std::env::current_exe().unwrap())
+        let child = |step| {
+            std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "workspace::tests::interrupted_save_recovers_the_draft_without_overwriting_disk",
             ])
             .env(CHILD_ROOT, &base)
+            .env(CHILD_STEP, step)
             .output()
-            .unwrap();
-        assert_eq!(child.status.code(), Some(73), "{child:?}");
+            .unwrap()
+        };
+        let before = child("journal");
+        assert_eq!(before.status.code(), Some(73), "{before:?}");
         assert_eq!(fs::read(root.join("brief.md")).unwrap(), b"original");
         let journal = fs::read_dir(&private).unwrap().next().unwrap().unwrap();
         assert_eq!(journal.metadata().unwrap().mode() & 0o777, 0o600);
@@ -495,6 +584,127 @@ mod tests {
         ));
         assert!(reopened.recovery_draft("brief.md").unwrap().is_none());
         assert_eq!(fs::read(root.join("brief.md")).unwrap(), b"draft");
+
+        fs::write(root.join("brief.md"), "next original").unwrap();
+        let replaced = child("replaced");
+        assert_eq!(replaced.status.code(), Some(73), "{replaced:?}");
+        assert_eq!(fs::read(root.join("brief.md")).unwrap(), b"draft");
+        assert!(reopened.recovery_draft("brief.md").unwrap().is_none());
+        let disk = reopened.read("brief.md").unwrap();
+        assert!(matches!(
+            reopened
+                .save("brief.md", &disk.revision, "next edit")
+                .unwrap(),
+            Save::Saved { .. }
+        ));
+    }
+
+    #[test]
+    fn simulated_io_failures_preserve_disk_and_any_durable_draft() {
+        let base = std::env::temp_dir().join(format!("offish-io-{}", std::process::id()));
+        fs::create_dir(&base).unwrap();
+        let _cleanup = TestDirectory(&base);
+        let root = base.join("workspace");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("brief.md");
+        fs::write(&path, "original").unwrap();
+        let workspace = Workspace::open(&root)
+            .unwrap()
+            .with_recovery(base.join("private"));
+        let initial = workspace.read("brief.md").unwrap();
+
+        for (stage, errno, draft) in [
+            (SaveStep::StageWrite, libc::ENOSPC, None),
+            (SaveStep::JournalSynced, libc::EACCES, Some("draft")),
+        ] {
+            let error = workspace
+                .save_with_hook("brief.md", &initial.revision, "draft", |step| {
+                    if step == stage {
+                        return Err(io::Error::from_raw_os_error(errno));
+                    }
+                    Ok(())
+                })
+                .err()
+                .expect("the injected failure must prevent saving");
+            assert_eq!(error.raw_os_error(), Some(errno));
+            assert_eq!(fs::read(&path).unwrap(), b"original");
+            assert_eq!(
+                workspace.recovery_draft("brief.md").unwrap().as_deref(),
+                draft
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_save_preserves_user_attributes_and_access_acl() {
+        let base = std::env::temp_dir().join(format!("offish-metadata-{}", std::process::id()));
+        fs::create_dir(&base).unwrap();
+        let _cleanup = TestDirectory(&base);
+        let target = base.join("brief.md");
+        fs::write(&target, "original").unwrap();
+        let before = open(&target, false).unwrap();
+        set_attribute(&before, c"user.offish_test", b"metadata").unwrap();
+        // Linux POSIX ACL xattr v2, including one named user followed by a mask.
+        let uid = unsafe { libc::geteuid() };
+        let mut acl = 2u32.to_le_bytes().to_vec();
+        for (tag, permissions, id) in [
+            (1u16, 6u16, u32::MAX),
+            (2, 4, uid),
+            (4, 0, u32::MAX),
+            (16, 4, u32::MAX),
+            (32, 0, u32::MAX),
+        ] {
+            acl.extend(tag.to_le_bytes());
+            acl.extend(permissions.to_le_bytes());
+            acl.extend(id.to_le_bytes());
+        }
+        set_attribute(&before, c"system.posix_acl_access", &acl).unwrap();
+        let expected = attributes(&before).unwrap();
+        let metadata = before.metadata().unwrap();
+        let workspace = Workspace::open(&base).unwrap();
+        let initial = workspace.read("brief.md").unwrap();
+        assert!(matches!(
+            workspace
+                .save("brief.md", &initial.revision, "saved")
+                .unwrap(),
+            Save::Saved { .. }
+        ));
+        let after = open(&target, false).unwrap();
+        assert_eq!(attributes(&after).unwrap(), expected);
+        let result = after.metadata().unwrap();
+        assert_eq!(
+            (result.uid(), result.gid(), result.mode()),
+            (metadata.uid(), metadata.gid(), metadata.mode())
+        );
+        assert_eq!(fs::read(target).unwrap(), b"saved");
+
+        let plain = base.join("plain.md");
+        fs::write(&plain, "plain").unwrap();
+        assert!(
+            attributes(&open(&plain, false).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        let parent = open(&base, true).unwrap();
+        set_attribute(&parent, c"system.posix_acl_default", &acl).unwrap();
+        let (inherited, _stage) = stage_file(&parent).unwrap();
+        assert!(
+            attributes(&inherited)
+                .unwrap()
+                .contains_key(c"system.posix_acl_access")
+        );
+        let initial = workspace.read("plain.md").unwrap();
+        assert!(matches!(
+            workspace
+                .save("plain.md", &initial.revision, "new plain")
+                .unwrap(),
+            Save::Saved { .. }
+        ));
+        assert!(
+            attributes(&open(&plain, false).unwrap())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     struct TestDirectory<'a>(&'a Path);

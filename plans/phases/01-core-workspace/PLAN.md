@@ -86,8 +86,8 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | --- | --- | --- |
 | P1-01 | Implemented, native check open | Linux desktop build, folder picker, explorer and three panels. Backend tests pass for scoped reads. The maintainer reported the native Omarchy smoke test worked. The detailed P1-T01 checks remain open. |
 | P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
-| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. Verify the native conflict flow and clean reload. |
-| P1-04 | In progress | Private interrupted-save drafts survive process exit before replacement. Verify interruption after replacement, power loss and metadata. Files with ACLs, extended attributes or multiple hard links are refused for now. |
+| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
+| P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
 | P1-05–P1-07 | Planned | Explorer mutations and settings, search, and native editor acceptance remain open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
@@ -99,3 +99,21 @@ Native desktop acceptance remains open.
 The maintainer reported a successful native smoke test on Omarchy and
 identified caret contrast, pane resizing, and tab closing as usability
 follow-ups. P1-T07a covers the follow-up checks.
+
+### P1-T03 and P1-T04 follow-up
+
+- The maintainer confirmed that **Use disk version** and **Keep draft and
+  save** both worked in the native Omarchy app.
+- On Omarchy Btrfs, a child process exited after journaling and after pathname
+  replacement. Reopening recovered the draft in the first case and
+  recognized the committed bytes in the second. An external edit after the
+  first exit stayed on disk until the draft was explicitly saved.
+- Preserved the tested UID, GID, mode, POSIX access ACL and user extended
+  attribute across replacement. A separate save into a directory with a
+  default ACL left the original file's no-ACL policy intact.
+- Injected ENOSPC before writing and EACCES after journaling left the
+  original file intact. The latter retained the durable draft.
+- A process exit leaves the kernel running. Abrupt power loss still needs a
+  disposable VM or equivalent storage test. The session has no QEMU or KVM
+  available. Non-cooperating writers retain the final check-to-rename race
+  documented in ADR-0002.
