@@ -2,8 +2,10 @@ import { history, historyKeymap, redo, redoDepth, undo, undoDepth } from "@codem
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
+import { markdownPreview } from "./markdown-preview.mjs";
 import { dialogButtonIndex, floatingMenu } from "./menu.mjs";
 import { ancestorFolders, paneDestination, tabCycleIndex } from "./pane-focus.mjs";
+import { sourceEditBatch } from "./source-edits.mjs";
 
 import { displayPath, isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, searchSelection, treeCommand, workspaceFilePath } from "./explorer.mjs";
 
@@ -26,6 +28,7 @@ let lastWorkspaceZone = "editor";
 let lastWorkspaceControl = null;
 let keyboardPaneFocus = false;
 const editorLabel = new Compartment();
+const editorPreview = new Compartment();
 
 const status = message => { $("status").textContent = message; };
 const report = error => status(String(error));
@@ -55,6 +58,9 @@ function renderDetails() {
 }
 
 function renderTabs() {
+    $("editor-tabs").hidden = documents.size === 0;
+    $("markdown-preview").hidden = !canPreview(active);
+    $("markdown-preview").setAttribute("aria-pressed", String(usePreview(active)));
     $("tabs").replaceChildren(...[...documents.values()].map(item => {
         const tab = document.createElement("div");
         tab.className = "tab";
@@ -190,6 +196,23 @@ function labelFor(item) {
     return EditorView.contentAttributes.of({ "aria-label": filename(item.path), tabindex: "0" });
 }
 
+const canPreview = item => item?.kind === "markdown" && !item.readOnly;
+const usePreview = item => canPreview(item) && !item.sourceOnly;
+
+function previewFor(item) {
+    return usePreview(item) ? markdownPreview(reference => invoke("read_preview_image", {
+        path: item.path, reference,
+    })) : [];
+}
+
+$("markdown-preview").onclick = () => {
+    if (!editor || !canPreview(active)) return;
+    active.sourceOnly = !active.sourceOnly;
+    editor.dispatch({effects: editorPreview.reconfigure(previewFor(active))});
+    $("markdown-preview").setAttribute("aria-pressed", String(usePreview(active)));
+    editor.focus();
+};
+
 function focusEditorView() {
     if (editor) editor.focus();
     else $("editor-pane").focus();
@@ -217,6 +240,7 @@ function display(item, focusEditor = true) {
                     EditorState.lineSeparator.of(separator), EditorState.readOnly.of(item.readOnly),
                     EditorView.editable.of(!item.readOnly), EditorView.lineWrapping,
                     editorLabel.of(labelFor(item)),
+                    editorPreview.of(previewFor(item)),
                     history(), normalizeCrlf, keymap.of([{ key: "Mod-s", run: () => { save().catch(report); return true; } }, ...historyKeymap]),
                     EditorView.updateListener.of(update => {
                         item.editorState = update.state;
@@ -442,7 +466,9 @@ async function save(base = active?.base) {
     item.saving = true;
     renderDetails();
     try {
-        const result = await invoke("save_document", {path: item.path, base: base.revision, text});
+        const result = usePreview(item) && base === item.base ?
+            await invoke("save_source_edits", {path: item.path, base: base.revision, batch: sourceEditBatch(base.text, text)}) :
+            await invoke("save_document", {path: item.path, base: base.revision, text});
         if (result.status === "conflict") {
             item.conflict = result.disk;
             status("Save stopped because the disk version changed.");
@@ -575,7 +601,10 @@ async function changeEntry(action, name) {
         item.path = newPath;
         documents.set(newPath, item);
     }
-    if (editor) editor.dispatch({effects: editorLabel.reconfigure(labelFor(active))});
+    if (editor) editor.dispatch({effects: [
+        editorLabel.reconfigure(labelFor(active)),
+        editorPreview.reconfigure(previewFor(active)),
+    ]});
     const branchesAfterMove = [...expanded].map(open => renamedPath(open, path, destination));
     expanded.clear();
     for (const open of branchesAfterMove) expanded.add(open);

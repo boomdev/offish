@@ -3,7 +3,7 @@
 Offish is a planned open-source desktop office suite for working with AI across documents, spreadsheets, presentations, and reference files. Open a local folder, edit visually, and review the changes an agent proposes before they become part of your work. Files use open formats and remain accessible to external tools.
 
 The Phase 1 core workspace is available as an Omarchy development build.
-The [Phase 2 plan](plans/phases/02-ai-document-editor/PLAN.md) is in draft.
+Phase 2 work starts with the [Markdown source contract](plans/phases/02-ai-document-editor/MARKDOWN_PROFILE_V1.md).
 See the [master plan](plans/MASTER_PLAN.md), the [planning index](plans/README.md),
 and the [contributor and agent guidance](AGENTS.md).
 
@@ -25,6 +25,10 @@ to the Files tree and saves the workspace automatically in Offish’s local
 configuration. **File → Close Workspace** returns to the saved workspace
 chooser. **File → Open Folder** starts a single-folder workspace, and
 **File → Open File** opens a document directly.
+
+Editable Markdown opens in **Live preview**. The active line keeps its
+Markdown syntax visible. Use the **Live preview** button to switch to
+source mode. Images resolve inside the document's workspace root.
 
 Use **Edit → Find in Workspace** or Ctrl+Shift+F to search saved UTF-8 text
 across all open roots. Select a result to jump to the matching line.

@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 
+use offish::markdown::{PROFILE_VERSION, SourceEdit, SourceEdits, SourceMap};
 use offish::workspace::search::{SearchIndex, SearchRoot};
 use offish::workspace::{Save, Workspace};
 use offish::workspaces::{ActiveWorkspace, CatalogStore, canonical_roots};
@@ -35,6 +36,114 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[test]
+fn source_edit_save_checks_revision_and_keeps_all_other_bytes() {
+    let fixture = Fixture::new();
+    let recovery = Fixture::new();
+    let path = fixture.0.join("brief.md");
+    let original = "\u{feff}---\r\nstatus: draft\r\n---\r\n\r\n# Café 😀\r\n\r\n+                    Repeat.\r\n+                    <div>opaque</div>\r\n+                    <!-- keep untouched -->\r\n+                    Repeat.\r\n";
+    fs::write(&path, original).unwrap();
+    let workspace = Workspace::open(&fixture.0)
+        .unwrap()
+        .with_recovery(recovery.0.join("private"));
+    let base = workspace.read("brief.md").unwrap().revision;
+    let unchanged = SourceEdits {
+        profile: PROFILE_VERSION,
+        edits: vec![],
+    };
+    let saved = workspace
+        .save_source_edits("brief.md", &base, &unchanged)
+        .unwrap();
+    assert!(matches!(saved, Save::Saved { revision } if revision == base));
+    assert_eq!(fs::read(&path).unwrap(), original.as_bytes());
+
+    let at = original.rfind("Repeat.").unwrap();
+    let map = SourceMap::new(original).unwrap();
+    let editor = map.editor_range(at..at + "Repeat.".len()).unwrap();
+    let range = map.byte_range(editor).unwrap();
+    let mut batch = SourceEdits {
+        profile: PROFILE_VERSION,
+        edits: vec![SourceEdit {
+            from: range.start,
+            to: range.end,
+            expected: "changed".into(),
+            replacement: "Edited 日本語.".into(),
+        }],
+    };
+    assert!(
+        workspace
+            .save_source_edits("brief.md", &base, &batch)
+            .is_err()
+    );
+    assert_eq!(fs::read(&path).unwrap(), original.as_bytes());
+    assert!(workspace.recovery_draft("brief.md").unwrap().is_none());
+
+    batch.edits[0].expected = "Repeat.".into();
+    let saved = workspace
+        .save_source_edits("brief.md", &base, &batch)
+        .unwrap();
+    assert!(matches!(saved, Save::Saved { revision } if revision != base));
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        format!("{}Edited 日本語.\r\n", &original[..at])
+    );
+
+    fs::write(&path, "External change\n").unwrap();
+    let conflicted = workspace
+        .save_source_edits("brief.md", &base, &batch)
+        .unwrap();
+    assert!(
+        matches!(conflicted, Save::Conflict { disk } if disk.text.as_deref() == Some("External change\n"))
+    );
+    assert_eq!(fs::read_to_string(path).unwrap(), "External change\n");
+}
+
+#[test]
+fn preview_images_are_document_relative_bounded_and_confined() {
+    let fixture = Fixture::new();
+    let external = Fixture::new();
+    let assets = fixture.0.join("assets");
+    fs::create_dir(&assets).unwrap();
+    fs::create_dir(fixture.0.join("notes")).unwrap();
+    fs::write(fixture.0.join("notes/brief.md"), "# Preview").unwrap();
+    let image =
+        include_bytes!("../../../plans/research/phase-0/fixtures/pilot/assets/timeline.svg");
+    fs::write(assets.join("timeline.svg"), image).unwrap();
+    fs::write(external.0.join("outside.svg"), image).unwrap();
+    fs::write(assets.join("unsafe.html"), "<html></html>").unwrap();
+    fs::File::create(assets.join("large.png"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024 + 1)
+        .unwrap();
+    symlink(external.0.join("outside.svg"), assets.join("linked.svg")).unwrap();
+    symlink(&external.0, fixture.0.join("linked-dir")).unwrap();
+    let workspace = Workspace::open(&fixture.0).unwrap();
+
+    let result = workspace
+        .read_preview_image("notes/brief.md", "../assets/timeline.svg")
+        .unwrap();
+    assert_eq!(result.mime, "image/svg+xml");
+    assert_eq!(result.bytes, image);
+    for reference in [
+        "../../outside.svg",
+        "../assets/linked.svg",
+        "../linked-dir/outside.svg",
+        "/assets/timeline.svg",
+        "https://example.com/img.png",
+        "//example.com/img.png",
+        "../assets/unsafe.html",
+        "../assets/large.png",
+        "../assets/missing.svg",
+    ] {
+        assert!(
+            workspace
+                .read_preview_image("notes/brief.md", reference)
+                .is_err(),
+            "{reference}"
+        );
     }
 }
 

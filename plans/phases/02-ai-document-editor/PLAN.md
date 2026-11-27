@@ -1,6 +1,6 @@
 # Phase 2 — AI-native document editor
 
-**Status** Draft for maintainer review  
+**Status** In progress · Offline live preview\
 **Owner** Project maintainer  
 **Master requirements** DOC-01, ED-01, WS-02, WS-03, AI-01, AI-02, CHG-01, NFR-01–06  
 [Master plan](../../MASTER_PLAN.md) · [Phase 1 evidence](../01-core-workspace/PLAN.md) · [Phase 0 fixtures and research](../../research/phase-0/README.md)
@@ -70,10 +70,13 @@ technology versions. Release requires evidence on both platforms.
 
 ## 5. Technical design
 
-Markdown files remain the authoritative bytes. CodeMirror presents source
-and preview. Rust validates the captured revision and expected bytes of
-each operation. Use one authoritative parser for edits through document
-structure. The preview can use a presentation parser for ordinary source edits.
+Markdown files remain the authoritative bytes. The
+[versioned Markdown profile](MARKDOWN_PROFILE_V1.md) defines the syntax,
+coordinate mapping, and source edit batch. CodeMirror presents source and
+preview. Rust validates the captured revision and expected bytes of each
+operation through the shared workspace save path. Use one authoritative
+parser for edits through document structure. The preview can use a
+presentation parser for ordinary source edits.
 Map UTF-16 editor selections to UTF-8 byte ranges across Unicode and line
 endings. Preserve BOM, front matter, comments, raw HTML and opaque spans.
 Open relative assets through the existing workspace boundary and verify
@@ -161,7 +164,41 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 
 | Tasks | Status | Evidence or next check |
 | --- | --- | --- |
-| P2-01–P2-03 | Planned | Start with a scoped offline live-preview slice and exact-byte fixture tests. Phase 0 prototypes inform implementation. |
+| P2-01 | Complete | Profile v1 is documented. UTF-16 and absolute byte ranges round-trip, and revision-bound edits use the existing workspace save path. |
+| P2-02 | Implemented, native preview smoke passed | The maintainer confirmed the preview works on Omarchy. The scroll isolation follow-up still needs a native check. |
+| P2-03 | Planned | Use authoritative structural spans for syntax-hidden editing and table-cell widgets. |
 | P2-04–P2-05 | Planned | Phase 0 proved recovery and partial review in a spike. Integrate the contract with the production editor and safe save path. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
+
+### P2-01 evidence
+
+On 27 November 2026, the locked desktop build, 28 Rust tests, 26 Rust
+tests with desktop features disabled, and all five JavaScript suites passed.
+The source fixtures covered LF, CRLF, BOM, supplementary Unicode characters,
+leading front matter, nested markup and repeated text. The workspace test
+verified a byte-identical no-op, one targeted save, and refusal of a stale
+revision after an external edit. The CodeMirror test confirmed the editor
+positions used by the Rust mapping. The Markdown parser integration and
+native live preview were assigned to P2-02.
+
+### P2-02 evidence
+
+The source-first preview uses the MIT-licensed Lezer Markdown parser
+(`@lezer/markdown` 1.8.2) and CodeMirror's existing language integration.
+The parser is pinned in the npm lockfile. It interprets source for
+presentation. Edits go through CodeMirror and replay as revision-checked
+byte splices through the existing save path. Tables render as widgets
+outside the selection and reveal their Markdown source when entered.
+
+The locked desktop build, 29 Rust tests and six JavaScript suites passed.
+Checks covered block and inline decorations, leading metadata, selection
+in tables, the source toggle, byte replay and workspace image confinement.
+A mocked desktop bridge confirmed that a preview edit saves using the
+revision-bound batch with BOM and CRLF preserved. The maintainer confirmed
+the native preview worked on Omarchy and reported that long documents
+could scroll the entire window. The workspace row is now constrained to
+the available viewport height. The editor and Files tree scroll
+independently and their headers stay in place. The layout follow-up
+still needs native verification. Native paint timing remains part of
+P2-T02.

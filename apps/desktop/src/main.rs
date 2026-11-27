@@ -1,8 +1,9 @@
 #[cfg(target_os = "linux")]
 mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
+    use offish::markdown::SourceEdits;
     use offish::workspace::search::{SearchIndex, SearchReport, SearchRoot};
-    use offish::workspace::{Document, Entry, Save, TrashEntry, Workspace};
+    use offish::workspace::{Document, Entry, PreviewImage, Save, TrashEntry, Workspace};
     use offish::workspaces::{ActiveWorkspace, CatalogStore, SavedWorkspace, canonical_roots};
     use std::{
         io,
@@ -482,6 +483,33 @@ mod linux {
     }
 
     #[tauri::command]
+    fn save_source_edits(
+        state: State<'_, Current>,
+        path: String,
+        base: String,
+        batch: SourceEdits,
+    ) -> Response<Save> {
+        with_root(state, &path, |root, relative| {
+            root.save_source_edits(relative, &base, &batch)
+        })
+    }
+
+    #[tauri::command]
+    async fn read_preview_image(
+        app: AppHandle,
+        path: String,
+        reference: String,
+    ) -> Response<PreviewImage> {
+        tauri::async_runtime::spawn_blocking(move || {
+            with_root(app.state(), &path, |root, document| {
+                root.read_preview_image(document, &reference)
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+
+    #[tauri::command]
     fn recovery_draft(state: State<'_, Current>, path: String) -> Response<Option<String>> {
         with_root(state, &path, |root, relative| root.recovery_draft(relative))
     }
@@ -592,6 +620,8 @@ mod linux {
                 restore_entry,
                 read_document,
                 save_document,
+                save_source_edits,
+                read_preview_image,
                 recovery_draft,
                 discard_recovery,
                 close_offish

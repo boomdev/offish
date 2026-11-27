@@ -2,9 +2,11 @@ pub mod search;
 mod trash;
 pub use trash::TrashEntry;
 
+use crate::markdown::SourceEdits;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     ffi::{CStr, CString},
     fs::{self, DirBuilder, File, Metadata, OpenOptions},
@@ -18,6 +20,7 @@ use std::{
 };
 
 const LIMIT: u64 = 16 * 1024 * 1024;
+const PREVIEW_IMAGE_LIMIT: u64 = 4 * 1024 * 1024;
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn invalid(error: &str) -> io::Error {
@@ -62,6 +65,12 @@ pub struct Workspace {
     root: File,
     recovery: Option<PathBuf>,
     pub name: String,
+}
+
+#[derive(Serialize)]
+pub struct PreviewImage {
+    pub mime: &'static str,
+    pub bytes: Vec<u8>,
 }
 
 impl Workspace {
@@ -371,8 +380,78 @@ impl Workspace {
         Ok(document(&metadata, bytes))
     }
 
+    pub fn read_preview_image(&self, document: &str, reference: &str) -> io::Result<PreviewImage> {
+        let document = Path::new(document);
+        if !is_markdown(document)
+            || reference.is_empty()
+            || reference.starts_with('/')
+            || reference.contains([':', '?', '#', '\\', '\0'])
+        {
+            return Err(invalid(
+                "Choose a local image within the document's workspace root.",
+            ));
+        }
+        let mut relative = document.parent().unwrap_or(Path::new("")).to_path_buf();
+        if !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+        {
+            return Err(invalid("Invalid Markdown document path."));
+        }
+        for component in Path::new(reference).components() {
+            match component {
+                Component::Normal(name) => relative.push(name),
+                Component::CurDir => (),
+                Component::ParentDir if relative.pop() => (),
+                _ => return Err(invalid("Image reference leaves the workspace root.")),
+            }
+        }
+        let mime = match relative
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("png") => "image/png",
+            Some("jpeg" | "jpg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("webp") => "image/webp",
+            Some("svg") => "image/svg+xml",
+            _ => return Err(invalid("Unsupported preview image type.")),
+        };
+        let path = relative
+            .to_str()
+            .ok_or_else(|| invalid("Invalid image path."))?;
+        let (directory, name) = self.parent(path)?;
+        let file = open(&descriptor(&directory).join(name), false)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.len() > PREVIEW_IMAGE_LIMIT {
+            return Err(invalid("Preview images must be regular files up to 4 MiB."));
+        }
+        let mut bytes = Vec::new();
+        file.take(PREVIEW_IMAGE_LIMIT + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > PREVIEW_IMAGE_LIMIT {
+            return Err(invalid("Preview image exceeds 4 MiB."));
+        }
+        Ok(PreviewImage { mime, bytes })
+    }
+
     pub fn save(&self, path: &str, base: &str, text: &str) -> io::Result<Save> {
         self.save_with_hook(path, base, text, |_| Ok(()))
+    }
+
+    pub fn save_source_edits(
+        &self,
+        path: &str,
+        base: &str,
+        batch: &SourceEdits,
+    ) -> io::Result<Save> {
+        self.save_candidate(
+            path,
+            base,
+            |source| batch.apply(source, LIMIT as usize).map(Cow::Owned),
+            |_| Ok(()),
+        )
     }
 
     fn save_with_hook(
@@ -380,12 +459,22 @@ impl Workspace {
         path: &str,
         base: &str,
         text: &str,
+        hook: impl FnMut(SaveStep) -> io::Result<()>,
+    ) -> io::Result<Save> {
+        if text.len() as u64 > LIMIT || text.as_bytes().contains(&0) {
+            return Err(invalid("Only Markdown files up to 16 MiB are editable."));
+        }
+        self.save_candidate(path, base, |_| Ok(Cow::Borrowed(text)), hook)
+    }
+
+    fn save_candidate<'a>(
+        &self,
+        path: &str,
+        base: &str,
+        candidate: impl FnOnce(&str) -> io::Result<Cow<'a, str>>,
         mut hook: impl FnMut(SaveStep) -> io::Result<()>,
     ) -> io::Result<Save> {
-        if !is_markdown(Path::new(path))
-            || text.len() as u64 > LIMIT
-            || text.as_bytes().contains(&0)
-        {
+        if !is_markdown(Path::new(path)) {
             return Err(invalid("Only Markdown files up to 16 MiB are editable."));
         }
         let (directory, name) = self.parent(path)?;
@@ -399,9 +488,12 @@ impl Workspace {
                 disk: document(&metadata, bytes),
             });
         }
-        if std::str::from_utf8(&bytes).is_err() || bytes.contains(&0) {
-            return Err(invalid("This file cannot be edited as UTF-8 Markdown."));
-        }
+        let source = std::str::from_utf8(&bytes)
+            .ok()
+            .filter(|_| !bytes.contains(&0))
+            .ok_or_else(|| invalid("This file cannot be edited as UTF-8 Markdown."))?;
+        let candidate = candidate(source)?;
+        let text = candidate.as_ref();
         if text.as_bytes() == bytes {
             return Ok(Save::Saved {
                 revision: base.into(),

@@ -34,8 +34,11 @@
       <button id="trash-open" type="button">Trash</button>
     </nav>
     <div id="files-divider" data-focus-zone="files-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Files pane" aria-controls="files-pane"></div>
-    <main id="editor-pane" data-focus-zone="editor" tabindex="-1" aria-label="Source editor">
-      <div id="tabs" aria-label="Open documents"></div>
+    <main id="editor-pane" data-focus-zone="editor" tabindex="-1" aria-label="Document editor">
+      <div id="editor-tabs" hidden>
+        <div id="tabs" aria-label="Open documents"></div>
+        <button id="markdown-preview" type="button" aria-pressed="true" title="Switch between live preview and Markdown source" hidden>Live preview</button>
+      </div>
       <div id="editor">Select a file.</div>
     </main>
     <div id="details-divider" data-focus-zone="details-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Details pane" aria-controls="details-pane"></div>
