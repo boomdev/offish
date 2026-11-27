@@ -349,3 +349,46 @@ fn explorer_trash_survives_reopen_and_restores_without_replacing() {
         base.revision
     );
 }
+
+#[test]
+fn native_file_selection_keeps_paths_workspace_relative_and_rejects_symlinks() {
+    let root = Fixture::new();
+    let other = Fixture::new();
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    let file = root.0.join("Notes/brief.md");
+    fs::write(&file, "brief").unwrap();
+    let outside = other.0.join("reference.md");
+    fs::write(&outside, "reference").unwrap();
+    symlink(&outside, root.0.join("link.md")).unwrap();
+    let workspace = Workspace::open(&root.0).unwrap();
+    assert_eq!(
+        workspace.selected_file(&file).unwrap().as_deref(),
+        Some("Notes/brief.md")
+    );
+    assert!(workspace.selected_file(&outside).unwrap().is_none());
+    assert!(workspace.selected_file(&root.0.join("link.md")).is_err());
+}
+
+#[test]
+fn explorer_permanent_delete_leaves_no_restore_point_and_does_not_follow_links() {
+    let root = Fixture::new();
+    let private = Fixture::new();
+    let outside = Fixture::new();
+    fs::set_permissions(&private.0, fs::Permissions::from_mode(0o700)).unwrap();
+    let workspace = Workspace::open(&root.0)
+        .unwrap()
+        .with_recovery(private.0.clone());
+    fs::create_dir(root.0.join("Notes")).unwrap();
+    fs::write(root.0.join("Notes/brief.md"), "discard").unwrap();
+    let retained = outside.0.join("retained.md");
+    fs::write(&retained, "keep").unwrap();
+    symlink(&outside.0, root.0.join("Notes/link")).unwrap();
+
+    workspace.delete_entry("Notes/brief.md").unwrap();
+    assert!(!root.0.join("Notes/brief.md").exists());
+    workspace.delete_entry("Notes").unwrap();
+    assert!(!root.0.join("Notes").exists());
+    assert!(workspace.list_trash().unwrap().is_empty());
+    assert_eq!(fs::read(retained).unwrap(), b"keep");
+    assert!(workspace.delete_entry("../outside.md").is_err());
+}

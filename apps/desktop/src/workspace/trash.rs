@@ -28,6 +28,14 @@ impl Workspace {
     }
 
     pub fn trash_entry(&self, path: &str) -> io::Result<Option<String>> {
+        self.remove_entry(path, false)
+    }
+
+    pub fn delete_entry(&self, path: &str) -> io::Result<Option<String>> {
+        self.remove_entry(path, true)
+    }
+
+    fn remove_entry(&self, path: &str, permanent: bool) -> io::Result<Option<String>> {
         let (source, name) = self.parent(path)?;
         let name = checked_leaf(&name)?;
         let source = independent_directory(&source)?;
@@ -35,7 +43,9 @@ impl Workspace {
         let metadata = ordinary_entry(&descriptor(&source).join(name))?;
         let trash = self.trash_directory()?;
         let stage = stage_directory(&trash)?;
-        let slot = open(&stage.0, true)?;
+        let slot_path = stage.0.clone();
+        let slot = open(&slot_path, true)?;
+        slot.lock()?;
         let mut origin = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -46,9 +56,14 @@ impl Workspace {
         // Publish the restore location before removing the workspace entry.
         slot.sync_all()?;
         trash.sync_all()?;
-        if metadata.is_file() {
-            if let Some(private) = self.recovery_directory()? {
+        if let Some(private) = self.recovery_directory()? {
+            if metadata.is_file() {
                 self.clear_committed_journal(&source, name, &private)?;
+            } else if permanent {
+                self.check_folder_recovery(
+                    &open(&descriptor(&source).join(name), true)?,
+                    &private,
+                )?;
             }
         }
         rename_exclusive(&source, name, &slot, Path::new("entry")).map_err(trash_move_error)?;
@@ -56,7 +71,53 @@ impl Workspace {
         stage.retain();
         let source_warning = entry_sync_warning(&source);
         let slot_warning = entry_sync_warning(&slot);
-        Ok(source_warning.or(slot_warning))
+        if let Some(warning) = source_warning.or(slot_warning) {
+            return Ok(Some(if permanent {
+                format!("The entry remains in Trash. {warning}")
+            } else {
+                warning
+            }));
+        }
+        if permanent {
+            let entry = descriptor(&slot).join("entry");
+            let result = if metadata.is_dir() {
+                fs::remove_dir_all(&entry)
+            } else {
+                fs::remove_file(&entry)
+            };
+            if let Err(error) = result {
+                return Ok(Some(format!(
+                    "Could not finish deleting. Any remaining contents are in Trash: {error}"
+                )));
+            }
+            if let Err(error) = slot.sync_all() {
+                return Ok(Some(format!(
+                    "The entry was deleted, but Trash could not be synced: {error}"
+                )));
+            }
+            let _ = fs::remove_file(descriptor(&slot).join("origin.json"));
+            let _ = fs::remove_dir(slot_path);
+            return Ok(entry_sync_warning(&trash));
+        }
+        Ok(None)
+    }
+
+    fn check_folder_recovery(&self, directory: &File, recovery: &File) -> io::Result<()> {
+        for entry in fs::read_dir(descriptor(directory))? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                self.check_folder_recovery(&open(&entry.path(), true)?, recovery)?;
+            } else if kind.is_file() {
+                let name = self.journal_name(directory, Path::new(&entry.file_name()))?;
+                if read_pending(&descriptor(recovery).join(name))?.is_some() {
+                    return Err(invalid(
+                        "Resolve recovery records inside this folder before deleting it permanently.",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn list_trash(&self) -> io::Result<Vec<TrashEntry>> {

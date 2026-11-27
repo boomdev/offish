@@ -15,11 +15,15 @@ npm --prefix apps/desktop run build
 cargo run --locked -p offish -- /absolute/path/to/a/test-folder
 ```
 
-Launch without a folder argument to use the folder picker. Use a disposable
+Launch without a folder argument and use **File → Open Folder** or
+**File → Open File**. Use a disposable
 copy of the pilot fixtures for the first run. Select a Markdown file, edit
-the source, and use the Save button or Ctrl+S. The Files panel has
-**New file** and **New folder** controls. Each entry's **Actions** menu
-offers Rename, Move, Duplicate, and Move to Trash. Move takes a folder path
+the source, and use **File → Save** or Ctrl+S. The Files panel has
+**New file** and **New folder** controls. Each entry’s **⋯** menu
+offers Rename, Move, Duplicate, and Move to Trash. Expand folders directly
+in the tree. With focus on a tree row, use the arrow keys to navigate, Enter
+to open, F2 to rename, Delete to move to Trash, and Shift+Delete to confirm
+permanent deletion. Shift+F10 opens the row’s actions. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
 relative to the workspace root. Duplicate copies the saved contents.
 Close affected tabs before moving an entry to Trash, then use the
 **Trash** button to restore it to its original path. Trash requires the

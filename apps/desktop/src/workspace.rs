@@ -72,6 +72,20 @@ impl Workspace {
         })
     }
 
+    pub fn selected_file(&self, path: &Path) -> io::Result<Option<String>> {
+        let root = fs::read_link(descriptor(&self.root))?;
+        let Ok(relative) = path.strip_prefix(root) else {
+            return Ok(None);
+        };
+        let relative = relative
+            .to_str()
+            .ok_or_else(|| invalid("The file path is not valid UTF-8."))?;
+        // Use the same confined reader as the explorer. In particular, links
+        // inside the workspace cannot authorize reads elsewhere.
+        self.read(relative)?;
+        Ok(Some(relative.into()))
+    }
+
     pub fn with_recovery(mut self, path: PathBuf) -> Self {
         self.recovery = Some(path);
         self

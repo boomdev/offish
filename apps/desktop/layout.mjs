@@ -1,7 +1,7 @@
 const filesMin = 145;
 const detailsMin = 165;
 const editorMin = 280;
-const dividerWidth = 8;
+const dividerWidth = 1;
 
 export function paneWidth(total, pane, other, requested) {
     const min = pane === "files" ? filesMin : detailsMin;

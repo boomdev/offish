@@ -9,15 +9,16 @@
 <body>
   <header>
     <strong>Offish</strong>
-    <button id="choose">Open folder…</button>
-    <button id="save" disabled>Save</button>
+    <div class="menu-bar" aria-label="Application menus">
+      <button id="file-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="floating-menu">File</button>
+      <button id="edit-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="floating-menu">Edit</button>
+    </div>
     <span id="status" role="status"></span>
   </header>
   <div class="workspace">
     <nav id="files-pane" aria-label="Workspace files">
       <h2>Files</h2>
       <p id="folder">No folder open</p>
-      <button id="up" hidden>Parent folder</button>
       <div id="file-actions" hidden>
         <button id="new-file">New file</button>
         <button id="new-folder">New folder</button>
@@ -70,6 +71,7 @@
     <ul id="trash-files"></ul>
     <button id="trash-close">Close</button>
   </dialog>
+  <div id="floating-menu" class="floating-menu" role="menu" tabindex="-1" hidden></div>
   <script type="module" src="editor.js"></script>
 </body>
 </html>

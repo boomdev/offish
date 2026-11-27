@@ -68,6 +68,8 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T05b | WS-01, WS-02, ED-01 | Move a file or folder within the workspace, retaining open drafts. Duplicate saved files and folder trees independently. Reject collisions and unsupported entries before publishing a copy. |
 | P1-T05c | WS-01, WS-02, NFR-03, NFR-04 | Move to private Trash and restore after reopening the workspace. A collision at the original path leaves both entries intact. If the filesystem cannot move the entry to Trash, leave it in place. |
 | P1-T07a | ED-01, NFR-05 | The caret is visible in light and dark themes. Resize each side pane with mouse and arrow keys while keeping the editor usable. Close active and background tabs, with confirmation before discarding a dirty draft. |
+| P1-T07b | WS-01, ED-01, NFR-05 | Expand and collapse the Files tree, open row actions with the three-dot button, switch and close document tabs, and operate the File and Edit menus by pointer and keyboard. Verify commands preserve workspace scope and unsaved drafts. |
+| P1-T07c | WS-01, WS-02, NFR-05 | Navigate visible tree rows with arrow keys. Enter opens the selected document. F2 opens rename. Delete confirms a move to Trash. Shift+Delete separately confirms permanent deletion. Open drafts retain their existing protections. |
 | P1-T08 | NFR-01, NFR-06 | Locked builds and fixture checks pass in CI. The development package and notices match the audited dependency set. Record Windows and macOS environments and owners for Phase 2. |
 
 ## 9. Risks and open questions
@@ -91,8 +93,8 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
 | P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
 | P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
-| P1-05 | In progress | The maintainer verified create and rename (P1-T05a). Move, duplicate, and recoverable Trash pass Btrfs backend and tab remapping tests (P1-T05b–T05c). Native confirmation of the new actions and local workspace settings remain open. |
-| P1-06–P1-07 | Planned | Search and native editor acceptance remain open. |
+| P1-05 | In progress | The maintainer verified create and rename (P1-T05a). Move, duplicate, and recoverable Trash pass Btrfs backend and tab remapping tests (P1-T05b–T05c). The maintainer confirmed the new actions in the native app. Local workspace settings remain open. |
+| P1-06–P1-07 | Planned | Search remains planned. P1-T07b implements the tree, tabs, and application menus. Native verification of that UI and the broader editor acceptance checks remain open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
@@ -152,3 +154,34 @@ frontend bundle passed. The maintainer confirmed the native walkthrough.
   restore after reopening and collision preservation. Frontend remapping
   tests, editor bundle and locked desktop build passed. Native UI
   verification remains open for the three new actions.
+
+
+### P1-T07b workspace UX
+
+The Files pane expands folders in place and uses one floating menu for each
+row’s actions. Tabs carry an active indicator, unsaved marker and close
+button. The File and Edit menus use the normal workspace operations.
+Opening an outside file requires a workspace switch and refuses to discard
+unsaved tabs. Clipboard commands use GTK plain text, and tab switching keeps
+the editor’s undo history.
+
+Fourteen Rust tests passed on Btrfs, including picker confinement and link
+rejection. Frontend tests cover popup placement, tab remapping and pane
+sizing. The editor bundle and locked desktop build passed. Native pointer,
+keyboard, picker and clipboard interaction remain to be verified.
+
+
+### P1-T07c keyboard follow-up
+
+The Files pane starts at 260 px and still resizes within the available
+window width. Arrow navigation follows visible rows and skips unsupported
+entries. Enter opens, F2 renames, and Shift+F10 opens row actions. Delete
+confirms a move to Trash. Shift+Delete confirms a separate permanent
+deletion and requires the affected tabs to be closed. The backend uses
+the workspace’s private Trash as its removal stage. If it cannot move
+an entry there, the entry stays in place.
+
+Fifteen Rust tests and the frontend tests passed. These include keyboard
+command selection, permanent removal with no restore point, and preserving
+a linked directory outside the workspace. Native key delivery and focus
+behavior remain to be checked on Omarchy.

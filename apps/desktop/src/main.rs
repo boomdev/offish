@@ -27,14 +27,21 @@ mod linux {
             .map_err(|error| error.to_string())
     }
 
-    #[tauri::command]
-    async fn choose_folder(app: AppHandle) -> Response<Option<String>> {
+    async fn pick_path(app: &AppHandle, folder: bool) -> Response<Option<PathBuf>> {
         let (send, receive) = tauri::async_runtime::channel(1);
         app.run_on_main_thread(move || {
             let picker = gtk::FileChooserNative::new(
-                Some("Open workspace folder"),
+                Some(if folder {
+                    "Open workspace folder"
+                } else {
+                    "Open file"
+                }),
                 None::<&gtk::Window>,
-                gtk::FileChooserAction::SelectFolder,
+                if folder {
+                    gtk::FileChooserAction::SelectFolder
+                } else {
+                    gtk::FileChooserAction::Open
+                },
                 Some("Open"),
                 Some("Cancel"),
             );
@@ -44,7 +51,7 @@ mod linux {
                 let result = if response == gtk::ResponseType::Accept {
                     picker
                         .filename()
-                        .ok_or_else(|| "Choose a local folder.".to_string())
+                        .ok_or_else(|| "Choose a local file or folder.".to_string())
                         .map(Some)
                 } else {
                     Ok(None)
@@ -57,7 +64,15 @@ mod linux {
         })
         .map_err(|error| error.to_string())?;
         let mut receive = receive;
-        let Some(path) = receive.recv().await.ok_or("Folder picker closed.")?? else {
+        receive
+            .recv()
+            .await
+            .ok_or_else(|| "File chooser closed.".to_string())?
+    }
+
+    #[tauri::command]
+    async fn choose_folder(app: AppHandle) -> Response<Option<String>> {
+        let Some(path) = pick_path(&app, true).await? else {
             return Ok(None);
         };
         let workspace = open_workspace(&app, &path)?;
@@ -66,6 +81,84 @@ mod linux {
             .lock()
             .map_err(|error| error.to_string())? = Some(workspace);
         Ok(Some(name))
+    }
+
+    #[derive(serde::Serialize)]
+    struct PickedFile {
+        workspace: String,
+        path: String,
+        switched: bool,
+    }
+
+    #[tauri::command]
+    async fn choose_file(app: AppHandle, preserve_workspace: bool) -> Response<Option<PickedFile>> {
+        let Some(path) = pick_path(&app, false).await? else {
+            return Ok(None);
+        };
+        let state = app.state::<Current>();
+        let mut current = state.lock().map_err(|error| error.to_string())?;
+        if let Some(workspace) = current.as_ref() {
+            if let Some(relative) = workspace
+                .selected_file(&path)
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(Some(PickedFile {
+                    workspace: workspace.name.clone(),
+                    path: relative,
+                    switched: false,
+                }));
+            }
+            if preserve_workspace {
+                return Err(
+                    "Save or close your unsaved tabs before opening a file outside this workspace."
+                        .into(),
+                );
+            }
+        }
+        let parent = path
+            .parent()
+            .ok_or("The selected file has no containing folder.")?;
+        let workspace = open_workspace(&app, parent)?;
+        let relative = workspace
+            .selected_file(&path)
+            .map_err(|error| error.to_string())?
+            .ok_or("The selected file is outside its workspace.")?;
+        let name = workspace.name.clone();
+        *current = Some(workspace);
+        Ok(Some(PickedFile {
+            workspace: name,
+            path: relative,
+            switched: true,
+        }))
+    }
+
+    #[tauri::command]
+    async fn copy_text(app: AppHandle, text: String) -> Response<()> {
+        let (send, mut receive) = tauri::async_runtime::channel(1);
+        app.run_on_main_thread(move || {
+            gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).set_text(&text);
+            let _ = send.try_send(());
+        })
+        .map_err(|error| error.to_string())?;
+        receive
+            .recv()
+            .await
+            .ok_or_else(|| "Clipboard is unavailable.".into())
+    }
+
+    #[tauri::command]
+    async fn clipboard_text(app: AppHandle) -> Response<Option<String>> {
+        let (send, mut receive) = tauri::async_runtime::channel(1);
+        app.run_on_main_thread(move || {
+            gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).request_text(move |_, text| {
+                let _ = send.try_send(text.map(str::to_owned));
+            });
+        })
+        .map_err(|error| error.to_string())?;
+        receive
+            .recv()
+            .await
+            .ok_or_else(|| "Clipboard is unavailable.".into())
     }
 
     #[tauri::command]
@@ -124,6 +217,11 @@ mod linux {
     #[tauri::command]
     fn trash_entry(state: State<'_, Current>, path: String) -> Response<Option<String>> {
         with_workspace(state, |workspace| workspace.trash_entry(&path))
+    }
+
+    #[tauri::command]
+    fn delete_entry(state: State<'_, Current>, path: String) -> Response<Option<String>> {
+        with_workspace(state, |workspace| workspace.delete_entry(&path))
     }
 
     #[tauri::command]
@@ -186,6 +284,9 @@ mod linux {
             })
             .invoke_handler(tauri::generate_handler![
                 choose_folder,
+                choose_file,
+                copy_text,
+                clipboard_text,
                 workspace_name,
                 list_directory,
                 create_entry,
@@ -193,6 +294,7 @@ mod linux {
                 move_entry,
                 duplicate_entry,
                 trash_entry,
+                delete_entry,
                 list_trash,
                 restore_entry,
                 read_document,

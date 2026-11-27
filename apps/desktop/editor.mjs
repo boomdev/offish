@@ -1,13 +1,16 @@
-import { history, historyKeymap } from "@codemirror/commands";
+import { history, historyKeymap, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
+import { floatingMenu } from "./menu.mjs";
 
-import { isMarkdown, pathInFolder, remapOpenDocuments, renamedPath } from "./explorer.mjs";
+import { isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, treeCommand } from "./explorer.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const $ = id => document.getElementById(id);
 const documents = new Map();
+const branches = new Map();
+const expanded = new Set();
 let workspace = "";
 let folder = "";
 let active = null;
@@ -16,6 +19,7 @@ let choosing = false;
 let mutating = false;
 let viewEpoch = 0;
 let entryAction = null;
+let treeFocusPath = null;
 const editorLabel = new Compartment();
 
 const status = message => { $("status").textContent = message; };
@@ -32,7 +36,6 @@ function button(label, action) {
 }
 
 function renderDetails() {
-    $("save").disabled = !active || active.readOnly || active.saving || !dirty(active);
     $("details").textContent = active ? active.problem ??
         `${active.path} · ${active.readOnly ? "Read only" : dirty(active) ? "Unsaved" : "Saved"}` :
         "Select a document.";
@@ -49,7 +52,11 @@ function renderTabs() {
     $("tabs").replaceChildren(...[...documents.values()].map(item => {
         const tab = document.createElement("div");
         tab.className = "tab";
-        const title = button(filename(item.path) + (dirty(item) ? " •" : ""), () => display(item));
+        const title = button(filename(item.path), () => display(item));
+        title.className = "tab-title";
+        title.setAttribute("aria-label", filename(item.path) + (dirty(item) ? ", unsaved changes" : ""));
+        tab.classList.toggle("active", item === active);
+        tab.classList.toggle("dirty", dirty(item));
         title.title = item.path;
         if (item === active) title.setAttribute("aria-current", "true");
         const close = button("×", () => closeTab(item));
@@ -61,6 +68,7 @@ function renderTabs() {
 }
 
 function closeTab(item) {
+    if (choosing || mutating) return;
     if (item.saving) return status("Wait for the save to finish.");
     if (dirty(item) && !window.confirm(`Discard unsaved changes to ${filename(item.path)}?`)) return;
     const tabs = [...documents.values()];
@@ -75,10 +83,11 @@ function closeTab(item) {
         editor?.destroy();
         editor = active = null;
         $("editor").textContent = "Select a Markdown file.";
-        ($("files").querySelector("button") ?? $("choose")).focus();
+        ($("files").querySelector("button") ?? $("file-menu")).focus();
     }
     renderTabs();
     renderDetails();
+    updateTreeSelection();
     if (active) {
         $("tabs").querySelector('[aria-current="true"]')?.focus();
     }
@@ -86,7 +95,7 @@ function closeTab(item) {
 
 function setupPanes() {
     const layout = document.querySelector(".workspace");
-    let wanted = {files: Math.round(layout.clientWidth * .20), details: Math.round(layout.clientWidth * .22)};
+    let wanted = {files: 260, details: Math.round(layout.clientWidth * .22)};
     let sizes;
     const other = {files: "details", details: "files"};
     const update = () => {
@@ -131,6 +140,7 @@ function setupPanes() {
 function setBase(item, base) {
     item.base = base;
     item.text = base.text;
+    item.editorState = null;
     const text = base.text ?? "";
     const unsupported = /\r(?!\n)/.test(text) ||
         (/\r\n/.test(text) && /(?<!\r)\n/.test(text));
@@ -163,7 +173,7 @@ function labelFor(item) {
     return EditorView.contentAttributes.of({ "aria-label": filename(item.path), tabindex: "0" });
 }
 
-function display(item) {
+function display(item, focusEditor = true) {
     editor?.destroy();
     $("editor").replaceChildren();
     active = item;
@@ -176,9 +186,10 @@ function display(item) {
         const bom = item.text.startsWith("\uFEFF") ? "\uFEFF" : "";
         const text = item.text.slice(bom.length);
         const separator = /\r\n/.test(text) && !/\r(?!\n)|(?<!\r)\n/.test(text) ? "\r\n" : "\n";
+        const cached = item.editorState;
         editor = new EditorView({
             parent: $("editor"),
-            state: EditorState.create({
+            state: cached ?? EditorState.create({
                 doc: text,
                 extensions: [
                     EditorState.lineSeparator.of(separator), EditorState.readOnly.of(item.readOnly),
@@ -186,6 +197,7 @@ function display(item) {
                     editorLabel.of(labelFor(item)),
                     history(), normalizeCrlf, keymap.of([{ key: "Mod-s", run: () => { save().catch(report); return true; } }, ...historyKeymap]),
                     EditorView.updateListener.of(update => {
+                        item.editorState = update.state;
                         if (!update.docChanged) return;
                         const wasDirty = dirty(item);
                         item.text = bom + update.state.sliceDoc();
@@ -195,10 +207,13 @@ function display(item) {
                 ],
             }),
         });
+        if (cached) editor.dispatch({effects: editorLabel.reconfigure(labelFor(item))});
+        item.editorState = editor.state;
     }
     renderTabs();
     renderDetails();
-    editor?.focus();
+    updateTreeSelection();
+    if (focusEditor) editor?.focus();
 }
 
 async function open(path, kind) {
@@ -219,36 +234,154 @@ async function open(path, kind) {
     display(item);
 }
 
-async function list(path) {
-    const epoch = viewEpoch;
-    const entries = await invoke("list_directory", {path});
-    if (epoch !== viewEpoch) return;
-    folder = path;
-    $("folder").textContent = path || workspace;
-    $("up").hidden = !path;
-    $("file-actions").hidden = false;
-    $("files").replaceChildren(...entries.map(entry => {
-        const child = pathInFolder(path, entry.name);
-        const row = document.createElement("li");
-        const openEntry = button(entry.name + (entry.kind === "folder" ? "/" : ""),
-            () => entry.kind === "folder" ? list(child) : open(child, entry.kind));
-        row.append(openEntry);
-        if (entry.kind === "unsupported") {
-            openEntry.disabled = true;
-            openEntry.title = "Links and special files cannot be opened.";
-        } else {
-            const actions = document.createElement("details");
-            const summary = document.createElement("summary");
-            summary.textContent = "Actions";
-            summary.setAttribute("aria-label", `Actions for ${entry.name}`);
-            actions.append(summary);
-            for (const [kind, title] of [["rename", "Rename"], ["move", "Move"], ["duplicate", "Duplicate"], ["trash", "Move to Trash"]]) {
-                actions.append(button(title, () => showEntryDialog({kind, path: child})));
-            }
-            row.append(actions);
-        }
-        return row;
+function updateTreeSelection() {
+    for (const row of $("files").querySelectorAll("[data-path]")) {
+        const selected = row.dataset.path === active?.path;
+        row.classList.toggle("selected", selected);
+        if (selected) row.firstElementChild.setAttribute("aria-current", "true");
+        else row.firstElementChild.removeAttribute("aria-current");
+    }
+}
+
+const actionsForEntry = [["rename", "Rename"], ["move", "Move"], ["duplicate", "Duplicate"], ["trash", "Move to Trash"]];
+
+function treeRows() {
+    return [...$("files").querySelectorAll(".tree-row")];
+}
+
+function setTreeFocus(path, focus = false) {
+    const buttons = treeRows().map(row => [row.dataset.path, row.firstElementChild]);
+    const target = buttons.find(([row, name]) => row === path && !name.disabled) ??
+        buttons.find(([, name]) => !name.disabled);
+    treeFocusPath = target?.[0] ?? null;
+    for (const [row, name] of buttons) {
+        const selected = row === treeFocusPath;
+        name.tabIndex = selected ? 0 : -1;
+        if (name.nextElementSibling) name.nextElementSibling.tabIndex = selected ? 0 : -1;
+    }
+    if (focus) target?.[1].focus();
+}
+
+$("files").addEventListener("focusin", event => {
+    const row = event.target.closest(".tree-row");
+    if (row && row.dataset.path !== treeFocusPath) setTreeFocus(row.dataset.path);
+});
+
+$("files").addEventListener("keydown", event => {
+    if (choosing || mutating || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+    const row = event.target.closest(".tree-row");
+    if (!row) return;
+    if (event.target.classList.contains("tree-more") && event.key === "Enter") return;
+    const dom = treeRows();
+    const rows = dom.map(element => ({
+        path: element.dataset.path,
+        disabled: element.firstElementChild.disabled,
+        expanded: element.firstElementChild.hasAttribute("aria-expanded") ?
+            element.firstElementChild.getAttribute("aria-expanded") === "true" : undefined,
     }));
+    const command = treeCommand(rows, dom.indexOf(row), event.key, event.shiftKey);
+    if (!command) return;
+    event.preventDefault();
+    switch (command.kind) {
+        case "focus": setTreeFocus(command.path, true); break;
+        case "activate": if (!event.repeat) row.firstElementChild.click(); break;
+        case "menu": if (!event.repeat) row.querySelector(".tree-more")?.click(); break;
+        case "rename": case "trash": case "delete":
+            if (!event.repeat) {
+                const path = row.dataset.path;
+                const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+                showEntryDialog({kind: command.kind, path, parent});
+            }
+            break;
+    }
+});
+
+function renderTree() {
+    const focused = document.activeElement?.closest("[data-path]")?.dataset.path;
+    const scroll = $("files-pane").scrollTop;
+    menus.close();
+    function children(path) {
+        return (branches.get(path) ?? []).map(entry => {
+            const child = pathInFolder(path, entry.name);
+            const item = document.createElement("li");
+            const row = document.createElement("div");
+            row.className = "tree-row";
+            row.dataset.path = child;
+            const isFolder = entry.kind === "folder";
+            const openRow = button(entry.name, async () => {
+                if (choosing || mutating) return;
+                if (!isFolder) {
+                    folder = path;
+                    await open(child, entry.kind);
+                    return;
+                }
+                folder = child;
+                if (expanded.delete(child)) return renderTree();
+                expanded.add(child);
+                const epoch = viewEpoch;
+                try {
+                    const entries = await invoke("list_directory", {path: child});
+                    if (epoch !== viewEpoch || !expanded.has(child)) return;
+                    branches.set(child, entries);
+                    renderTree();
+                } catch (error) {
+                    if (epoch === viewEpoch) expanded.delete(child);
+                    throw error;
+                }
+            });
+            openRow.title = child;
+            openRow.className = `tree-name ${entry.kind}`;
+            if (isFolder) openRow.setAttribute("aria-expanded", String(expanded.has(child)));
+            if (entry.kind === "unsupported") openRow.disabled = true;
+            row.append(openRow);
+            if (entry.kind !== "unsupported") {
+                const more = button("⋯", () => menus.open(more, actionsForEntry.map(([kind, label]) => ({
+                    label, run: () => showEntryDialog({kind, path: child, parent: path}),
+                }))));
+                more.className = "tree-more";
+                more.setAttribute("aria-label", `Actions for ${child}`);
+                more.setAttribute("aria-haspopup", "menu");
+                more.setAttribute("aria-expanded", "false");
+                more.setAttribute("aria-controls", "floating-menu");
+                row.append(more);
+            }
+            item.append(row);
+            if (isFolder && expanded.has(child)) {
+                const nested = document.createElement("ul");
+                nested.append(...children(child));
+                item.append(nested);
+            }
+            return item;
+        });
+    }
+    $("folder").textContent = workspace || "No folder open";
+    $("folder").title = workspace;
+    $("file-actions").hidden = !workspace;
+    $("files").replaceChildren(...children(""));
+    updateTreeSelection();
+    setTreeFocus(focused ?? treeFocusPath);
+    $("files-pane").scrollTop = scroll;
+    if (focused && !document.querySelector("dialog[open]")) {
+        setTreeFocus(focused, true);
+        $("files-pane").scrollTop = scroll;
+    }
+}
+
+async function reloadTree() {
+    const epoch = viewEpoch;
+    const root = await invoke("list_directory", {path: ""});
+    const descendants = await Promise.all([...expanded].map(async path => {
+        try { return [path, await invoke("list_directory", {path})]; }
+        catch { return [path, null]; }
+    }));
+    if (epoch !== viewEpoch) return;
+    branches.clear();
+    branches.set("", root);
+    for (const [path, entries] of descendants) {
+        if (entries) branches.set(path, entries);
+        else expanded.delete(path);
+    }
+    renderTree();
 }
 
 async function save(base = active?.base) {
@@ -298,7 +431,7 @@ async function refresh() {
             else {
                 setBase(item, disk);
                 item.conflict = null;
-                if (item === active) display(item);
+                if (item === active) display(item, editor?.hasFocus ?? false);
             }
         } catch (error) {
             if (epoch !== viewEpoch || mutating) return;
@@ -309,29 +442,32 @@ async function refresh() {
 }
 
 const entryTitles = {
-    rename: "Rename", move: "Move", duplicate: "Duplicate", trash: "Move to Trash",
+    rename: "Rename", move: "Move", duplicate: "Duplicate", trash: "Move to Trash", delete: "Delete permanently",
     folder: "New folder", file: "New file",
 };
 
 function showEntryDialog(action) {
     if (choosing || mutating) return;
-    entryAction = {...action, parent: folder};
+    entryAction = {parent: folder, ...action};
     const {kind, path} = action;
     const move = kind === "move";
     const trash = kind === "trash";
+    const deleting = trash || kind === "delete";
     $("entry-heading").textContent = entryTitles[kind];
     $("entry-submit").textContent = kind === "folder" || kind === "file" ? "Create" : entryTitles[kind];
-    $("entry-description").hidden = !(move || trash || kind === "duplicate");
+    $("entry-description").hidden = kind === "rename";
     $("entry-description").textContent = move ? "Enter a folder path relative to the workspace. Leave blank to move to the workspace root." :
         trash ? `Move ${path} to this workspace's Trash?` :
-        kind === "duplicate" ? "Duplicate the saved version in this folder." : "";
-    $("entry-field").hidden = trash;
+        kind === "delete" ? `Permanently delete ${path} and any contents? This cannot be undone.` :
+        kind === "duplicate" ? "Duplicate the saved version in this folder." :
+        kind === "folder" || kind === "file" ? `Create in ${entryAction.parent || workspace}` : "";
+    $("entry-field").hidden = deleting;
     $("entry-label").textContent = move ? "Destination folder" : "Name";
-    $("entry-name").required = !(move || trash);
+    $("entry-name").required = !(move || deleting);
     $("entry-name").value = kind === "rename" ? filename(path) : kind === "file" ? "untitled.md" : "";
     $("entry-error").hidden = true;
     $("entry-dialog").showModal();
-    if (trash) $("entry-cancel").focus();
+    if (deleting) $("entry-cancel").focus();
     else $("entry-name").select();
 }
 
@@ -340,11 +476,22 @@ async function changeEntry(action, name) {
     if (kind === "folder" || kind === "file") {
         return invoke("create_entry", {parent, name, folder: kind === "folder"});
     }
-    if (kind === "trash") {
+    if (kind === "trash" || kind === "delete") {
         if ([...documents.keys()].some(open => renamedPath(open, path, "") !== open)) {
-            throw new Error("Close the affected tabs before moving this entry to Trash.");
+            throw new Error("Close the affected tabs before deleting this entry.");
         }
-        return invoke("trash_entry", {path});
+        const rows = treeRows();
+        const index = rows.findIndex(row => row.dataset.path === path);
+        const survives = row => !row.firstElementChild.disabled &&
+            renamedPath(row.dataset.path, path, "") === row.dataset.path;
+        const neighbor = rows.slice(index + 1).find(survives) ?? rows.slice(0, index).reverse().find(survives);
+        const warning = await invoke(kind === "trash" ? "trash_entry" : "delete_entry", {path});
+        treeFocusPath = neighbor?.dataset.path ?? null;
+        for (const open of expanded) {
+            if (renamedPath(open, path, "") !== open) expanded.delete(open);
+        }
+        if (renamedPath(folder, path, "") !== folder) folder = parent;
+        return warning;
     }
     if (kind === "duplicate") return invoke("duplicate_entry", {path, name});
 
@@ -367,6 +514,11 @@ async function changeEntry(action, name) {
         documents.set(newPath, item);
     }
     if (editor) editor.dispatch({effects: editorLabel.reconfigure(labelFor(active))});
+    const branchesAfterMove = [...expanded].map(open => renamedPath(open, path, destination));
+    expanded.clear();
+    for (const open of branchesAfterMove) expanded.add(open);
+    folder = renamedPath(folder, path, destination);
+    if (treeFocusPath) treeFocusPath = renamedPath(treeFocusPath, path, destination);
     renderTabs();
     renderDetails();
     return warning;
@@ -391,7 +543,7 @@ async function restoreEntry(entry) {
             throw new Error("Close the affected tabs before restoring this entry.");
         }
         const warning = await invoke("restore_entry", {id: entry.id});
-        await list(folder);
+        await reloadTree();
         await renderTrash();
         $("trash-status").textContent = warning ?? `Restored ${entry.path}.`;
         $("trash-close").focus();
@@ -433,7 +585,8 @@ $("entry-form").onsubmit = async event => {
         const warning = await changeEntry(entryAction, $("entry-name").value);
         $("entry-dialog").close();
         status(warning ?? "");
-        await list(folder).catch(report);
+        await reloadTree().catch(report);
+        if (entryAction.path) setTreeFocus(treeFocusPath ?? entryAction.parent, true);
     } catch (problem) {
         error.textContent = String(problem);
         error.hidden = false;
@@ -444,28 +597,108 @@ $("entry-form").onsubmit = async event => {
     }
 };
 
-$("choose").onclick = async () => {
+function setWorkspace(name) {
+    viewEpoch++;
+    workspace = name;
+    folder = "";
+    treeFocusPath = null;
+    expanded.clear();
+    branches.clear();
+    documents.clear();
+    active = null;
+    editor?.destroy();
+    editor = null;
+    $("editor").textContent = "Select a Markdown file.";
+    renderTabs();
+    renderDetails();
+    renderTree();
+}
+
+async function chooseFolder() {
     if (choosing || mutating || [...documents.values()].some(item => item.saving)) return;
     if (unsaved() && !window.confirm("Discard your unsaved drafts and open another folder?")) return;
     choosing = true;
     try {
         const selected = await invoke("choose_folder");
         if (!selected) return;
-        viewEpoch++;
-        workspace = selected;
-        documents.clear();
-        active = null;
-        editor?.destroy();
-        editor = null;
-        $("editor").textContent = "Select a Markdown file.";
-        renderTabs();
-        renderDetails();
-        await list("");
-    } catch (error) { report(error); }
-    finally { choosing = false; }
+        setWorkspace(selected);
+        await reloadTree();
+    } finally { choosing = false; }
+}
+
+async function chooseFile() {
+    if (choosing || mutating || [...documents.values()].some(item => item.saving)) return;
+    choosing = true;
+    let selected;
+    try {
+        selected = await invoke("choose_file", {preserveWorkspace: unsaved()});
+        if (!selected) return;
+        if (selected.switched) setWorkspace(selected.workspace);
+        const segments = selected.path.split("/");
+        segments.pop();
+        folder = segments.join("/");
+        for (let i = 1; i <= segments.length; i++) expanded.add(segments.slice(0, i).join("/"));
+        await reloadTree();
+    } finally { choosing = false; }
+    await open(selected.path, isMarkdown(selected.path) ? "markdown" : "reference");
+}
+
+async function clipboardAction(action) {
+    const view = editor;
+    if (!view || (action !== "copy" && active.readOnly)) return;
+    const state = view.state;
+    if (action === "paste") {
+        const text = await invoke("clipboard_text");
+        if (editor !== view || view.state !== state || !text) return;
+        view.dispatch(view.state.replaceSelection(text), {userEvent: "input.paste"});
+    } else {
+        const {from, to} = state.selection.main;
+        if (from === to) return;
+        await invoke("copy_text", {text: state.sliceDoc(from, to)});
+        if (action === "cut" && editor === view && view.state === state) {
+            view.dispatch(view.state.replaceSelection(""), {userEvent: "delete.cut"});
+        }
+    }
+    if (editor === view) view.focus();
+}
+
+function requestClose() {
+    if (choosing || mutating || [...documents.values()].some(item => item.saving)) return status("Wait for the current operation to finish.");
+    if (!unsaved() || window.confirm("Discard unsaved drafts and close Offish?")) return invoke("close_offish");
+}
+
+const menus = floatingMenu($("floating-menu"), report);
+$("file-menu").onclick = () => menus.open($("file-menu"), [
+    {label: "New file…", run: () => showEntryDialog({kind: "file"}), disabled: !workspace},
+    {label: "New folder…", run: () => showEntryDialog({kind: "folder"}), disabled: !workspace},
+    null,
+    {label: "Open file…", run: chooseFile},
+    {label: "Open folder…", run: chooseFolder},
+    null,
+    {label: "Save", run: () => save(), disabled: !active || active.readOnly || active.saving || !dirty(active)},
+    {label: "Close tab", run: () => closeTab(active), disabled: !active},
+    {label: "Exit", run: requestClose},
+]);
+$("edit-menu").onclick = () => {
+    const editable = Boolean(editor && active && !active.readOnly);
+    const selection = Boolean(editor && !editor.state.selection.main.empty);
+    menus.open($("edit-menu"), [
+        {label: "Undo", run: () => { undo(editor); editor.focus(); }, disabled: !editable || !undoDepth(editor.state)},
+        {label: "Redo", run: () => { redo(editor); editor.focus(); }, disabled: !editable || !redoDepth(editor.state)},
+        null,
+        {label: "Cut", run: () => clipboardAction("cut"), disabled: !editable || !selection},
+        {label: "Copy", run: () => clipboardAction("copy"), disabled: !selection},
+        {label: "Paste", run: () => clipboardAction("paste"), disabled: !editable},
+    ]);
 };
-$("up").onclick = () => list(folder.split("/").slice(0, -1).join("/")).catch(report);
-$("save").onclick = () => save().catch(report);
+for (const menu of [$("file-menu"), $("edit-menu")]) {
+    menu.addEventListener("keydown", event => {
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            menu.click();
+        }
+    });
+}
 $("keep").onclick = () => {
     if (active?.conflict && window.confirm("Replace the disk version with your draft?")) save(active.conflict).catch(report);
 };
@@ -478,6 +711,7 @@ $("reload").onclick = () => {
 $("recover").onclick = () => {
     if (!active?.recovered || dirty(active)) return;
     active.text = active.recovered;
+    active.editorState = null;
     display(active);
     status("Recovered draft loaded. Review it before saving.");
 };
@@ -491,12 +725,11 @@ $("discard").onclick = async () => {
     } catch (error) { report(error); }
 };
 window.__TAURI__.event.listen("offish-close-request", () => {
-    if (mutating || [...documents.values()].some(item => item.saving)) return status("Wait for the current operation to finish.");
-    if (!unsaved() || window.confirm("Discard unsaved drafts and close Offish?")) invoke("close_offish").catch(report);
+    Promise.resolve().then(requestClose).catch(report);
 }).catch(report);
 setupPanes();
 workspace = await invoke("workspace_name").catch(report) || "";
-if (workspace) await list("").catch(report);
+if (workspace) await reloadTree().catch(report);
 async function watch() {
     await refresh().catch(report);
     setTimeout(watch, 1500);
