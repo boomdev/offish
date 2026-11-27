@@ -1,3 +1,8 @@
+export function dialogButtonIndex(current, count, key) {
+    if (current < 0 || current >= count || (key !== "ArrowLeft" && key !== "ArrowRight")) return null;
+    return Math.max(0, Math.min(count - 1, current + (key === "ArrowLeft" ? -1 : 1)));
+}
+
 export function menuPosition(anchor, size, viewport) {
     const gap = 6;
     return {

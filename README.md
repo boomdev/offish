@@ -23,7 +23,10 @@ the source, and use **File → Save** or Ctrl+S. The Files panel has
 offers Rename, Move, Duplicate, and Move to Trash. Expand folders directly
 in the tree. With focus on a tree row, use the arrow keys to navigate, Enter
 to open, F2 to rename, Delete to move to Trash, and Shift+Delete to confirm
-permanent deletion. Shift+F10 opens the row’s actions. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
+permanent deletion. Shift+F10 opens the row’s actions. Use Alt+Left or
+Alt+Right to move focus between panes and dividers. Alt+Up focuses File,
+and Alt+Down returns focus to the workspace from the menu bar. Left and
+Right move between dialog buttons. Ctrl+W closes the focused editor tab. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
 relative to the workspace root. Duplicate copies the saved contents.
 Close affected tabs before moving an entry to Trash, then use the
 **Trash** button to restore it to its original path. Trash requires the

@@ -2,7 +2,8 @@ import { history, historyKeymap, redo, redoDepth, undo, undoDepth } from "@codem
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
-import { floatingMenu } from "./menu.mjs";
+import { dialogButtonIndex, floatingMenu } from "./menu.mjs";
+import { ancestorFolders, paneDestination } from "./pane-focus.mjs";
 
 import { isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, treeCommand } from "./explorer.mjs";
 
@@ -20,6 +21,9 @@ let mutating = false;
 let viewEpoch = 0;
 let entryAction = null;
 let treeFocusPath = null;
+let lastWorkspaceZone = "editor";
+let lastWorkspaceControl = null;
+let keyboardPaneFocus = false;
 const editorLabel = new Compartment();
 
 const status = message => { $("status").textContent = message; };
@@ -260,6 +264,7 @@ function setTreeFocus(path, focus = false) {
         if (name.nextElementSibling) name.nextElementSibling.tabIndex = selected ? 0 : -1;
     }
     if (focus) target?.[1].focus();
+    return Boolean(target);
 }
 
 $("files").addEventListener("focusin", event => {
@@ -634,10 +639,9 @@ async function chooseFile() {
         selected = await invoke("choose_file", {preserveWorkspace: unsaved()});
         if (!selected) return;
         if (selected.switched) setWorkspace(selected.workspace);
-        const segments = selected.path.split("/");
-        segments.pop();
-        folder = segments.join("/");
-        for (let i = 1; i <= segments.length; i++) expanded.add(segments.slice(0, i).join("/"));
+        const parents = ancestorFolders(selected.path);
+        folder = parents.at(-1) ?? "";
+        for (const parent of parents) expanded.add(parent);
         await reloadTree();
     } finally { choosing = false; }
     await open(selected.path, isMarkdown(selected.path) ? "markdown" : "reference");
@@ -667,7 +671,120 @@ function requestClose() {
     if (!unsaved() || window.confirm("Discard unsaved drafts and close Offish?")) return invoke("close_offish");
 }
 
+document.addEventListener("keydown", event => {
+    if (event.altKey || event.metaKey || event.shiftKey || event.isComposing) return;
+    const dialog = event.target.closest?.("dialog[open]");
+    if (dialog && !event.ctrlKey && event.target.matches("button") &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        const buttons = [...dialog.querySelectorAll("button:not(:disabled)")]
+            .filter(button => !button.closest("[hidden]"));
+        const target = dialogButtonIndex(buttons.indexOf(event.target), buttons.length, event.key);
+        if (target === null) return;
+        event.preventDefault();
+        buttons[target].focus();
+    } else if (!dialog && event.ctrlKey && event.key.toLowerCase() === "w" &&
+        active && editor?.contentDOM.contains(event.target)) {
+        event.preventDefault();
+        if (!event.repeat) closeTab(active);
+    }
+}, true);
+
 const menus = floatingMenu($("floating-menu"), report);
+function focusZone(element) {
+    return element?.closest("[data-focus-zone]")?.dataset.focusZone ?? null;
+}
+
+function updatePaneHighlight() {
+    const zone = keyboardPaneFocus ? focusZone(document.activeElement) : null;
+    for (const element of document.querySelectorAll("[data-focus-zone]")) {
+        element.classList.toggle("keyboard-pane-focus", element.dataset.focusZone === zone);
+    }
+}
+
+document.addEventListener("focusin", event => {
+    const zone = focusZone(event.target);
+    if (zone && zone !== "menu") {
+        lastWorkspaceZone = zone;
+        lastWorkspaceControl = event.target;
+    }
+    updatePaneHighlight();
+});
+document.addEventListener("pointerdown", () => {
+    keyboardPaneFocus = false;
+    updatePaneHighlight();
+}, true);
+
+function firstDetailsButton() {
+    return [...$("details-pane").querySelectorAll("button:not(:disabled)")]
+        .find(button => !button.closest("[hidden]"));
+}
+
+async function focusFiles() {
+    const path = active?.path;
+    if (!path) {
+        if (!setTreeFocus(treeFocusPath, true)) $("files-pane").focus();
+        return;
+    }
+    const row = treeRows().find(row => row.dataset.path === path);
+    if (row && !row.firstElementChild.disabled) {
+        setTreeFocus(path, true);
+        return;
+    }
+    $("files-pane").focus();
+    if (!workspace) return;
+    const parents = ancestorFolders(path);
+    for (const parent of parents) expanded.add(parent);
+    const epoch = viewEpoch;
+    await reloadTree();
+    // Loading a collapsed folder must not steal focus if the user moved on.
+    if (document.activeElement !== $("files-pane") || epoch !== viewEpoch || active?.path !== path) return;
+    setTreeFocus(path, true);
+}
+
+async function focusWorkspaceZone(zone, previous = null) {
+    if (zone === "menu") return $("file-menu").focus();
+    if (zone === "files") {
+        if (previous?.isConnected && !previous.closest("[hidden]") && !previous.disabled &&
+            previous !== $("files-pane")) return previous.focus();
+        return focusFiles();
+    }
+    if (zone === "editor") {
+        if (editor) return editor.focus();
+        return $("editor-pane").focus();
+    }
+    if (zone === "details") {
+        const first = firstDetailsButton();
+        if (first && previous?.isConnected && !previous.closest("[hidden]") && !previous.disabled &&
+            previous.matches("button, textarea")) return previous.focus();
+        return first?.focus();
+    }
+    $(zone)?.focus();
+}
+
+document.addEventListener("keydown", event => {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing ||
+        choosing || mutating || document.querySelector("dialog[open]")) return;
+    const origin = event.target.closest?.("#floating-menu") ?
+        document.querySelector('button[aria-controls="floating-menu"][aria-expanded="true"]') : event.target;
+    const current = focusZone(origin) ?? lastWorkspaceZone;
+    const destination = paneDestination(current, lastWorkspaceZone, event.key);
+    if (!destination) {
+        if (current !== "menu" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || destination === "details" && !firstDetailsButton()) return;
+    const previous = current === "menu" && event.key === "ArrowDown" ? lastWorkspaceControl : null;
+    keyboardPaneFocus = true;
+    menus.close();
+    focusWorkspaceZone(destination, previous).catch(report);
+    updatePaneHighlight();
+}, true);
+
 $("file-menu").onclick = () => menus.open($("file-menu"), [
     {label: "New file…", run: () => showEntryDialog({kind: "file"}), disabled: !workspace},
     {label: "New folder…", run: () => showEntryDialog({kind: "folder"}), disabled: !workspace},

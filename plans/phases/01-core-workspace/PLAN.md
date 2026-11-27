@@ -70,6 +70,7 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T07a | ED-01, NFR-05 | The caret is visible in light and dark themes. Resize each side pane with mouse and arrow keys while keeping the editor usable. Close active and background tabs, with confirmation before discarding a dirty draft. |
 | P1-T07b | WS-01, ED-01, NFR-05 | Expand and collapse the Files tree, open row actions with the three-dot button, switch and close document tabs, and operate the File and Edit menus by pointer and keyboard. Verify commands preserve workspace scope and unsaved drafts. |
 | P1-T07c | WS-01, WS-02, NFR-05 | Navigate visible tree rows with arrow keys. Enter opens the selected document. F2 opens rename. Delete confirms a move to Trash. Shift+Delete separately confirms permanent deletion. Open drafts retain their existing protections. |
+| P1-T07d | ED-01, NFR-05 | Alt+Left/Right moves through panes and dividers. Files reveals the active document. The editor restores its caret. Details focuses its first available button. Alt+Up focuses File, and Alt+Down returns to the last workspace control. Left/Right moves between dialog buttons. Ctrl+W closes the editor tab with the existing draft protection. |
 | P1-T08 | NFR-01, NFR-06 | Locked builds and fixture checks pass in CI. The development package and notices match the audited dependency set. Record Windows and macOS environments and owners for Phase 2. |
 
 ## 9. Risks and open questions
@@ -185,3 +186,16 @@ Fifteen Rust tests and the frontend tests passed. These include keyboard
 command selection, permanent removal with no restore point, and preserving
 a linked directory outside the workspace. Native key delivery and focus
 behavior remain to be checked on Omarchy.
+
+
+### P1-T07d pane navigation
+
+Alt+Left and Alt+Right step across Files, its divider, the source editor,
+the Details divider, and Details. Files focuses the active document and
+expands any collapsed ancestors. Editor focus leaves the current selection
+intact. Details takes focus only when it has an enabled, visible action.
+Alt+Up focuses File and Alt+Down returns to the latest workspace focus stop.
+
+Frontend tests cover navigation order and ancestor paths. The editor bundle
+and locked desktop build passed. Native Omarchy shortcut delivery and
+caret restoration still need a smoke test.

@@ -16,12 +16,18 @@ header {
   display: flex;
   align-items: center;
   gap: 1rem;
-  min-height: 39px;
+  min-height: 32px;
   padding: 0 .9rem;
   border-bottom: 1px solid var(--line);
-  background: var(--rail);
+  background: light-dark(#e4ebe8, #142029);
 }
-header strong { color: var(--accent); font-size: .92rem; letter-spacing: .02em; }
+header strong {
+  color: var(--accent);
+  font-size: .92rem;
+  letter-spacing: .02em;
+  cursor: default;
+  user-select: none;
+}
 .menu-bar { display: flex; gap: .2rem; }
 .menu-bar button { padding: .2rem .6rem; }
 #status { color: var(--muted); margin-left: auto; font-size: .82rem; }
@@ -167,3 +173,13 @@ dialog::backdrop { background: #0006; }
 #entry-dialog input { display: block; margin: .3rem 0 .8rem; font: inherit; }
 
 #entry-description { max-width: 28rem; }
+
+.workspace > .keyboard-pane-focus:not(.pane-divider) {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.pane-divider.keyboard-pane-focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+  background: var(--accent);
+}

@@ -9,14 +9,14 @@
 <body>
   <header>
     <strong>Offish</strong>
-    <div class="menu-bar" aria-label="Application menus">
+    <div class="menu-bar" data-focus-zone="menu" aria-label="Application menus">
       <button id="file-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="floating-menu">File</button>
       <button id="edit-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="floating-menu">Edit</button>
     </div>
     <span id="status" role="status"></span>
   </header>
   <div class="workspace">
-    <nav id="files-pane" aria-label="Workspace files">
+    <nav id="files-pane" data-focus-zone="files" tabindex="-1" aria-label="Workspace files">
       <h2>Files</h2>
       <p id="folder">No folder open</p>
       <div id="file-actions" hidden>
@@ -26,13 +26,13 @@
       </div>
       <ul id="files"></ul>
     </nav>
-    <div id="files-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Files pane" aria-controls="files-pane"></div>
-    <main aria-label="Source editor">
+    <div id="files-divider" data-focus-zone="files-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Files pane" aria-controls="files-pane"></div>
+    <main id="editor-pane" data-focus-zone="editor" tabindex="-1" aria-label="Source editor">
       <div id="tabs" aria-label="Open documents"></div>
       <div id="editor"><p>Open a folder to start editing Markdown.</p></div>
     </main>
-    <div id="details-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Details pane" aria-controls="details-pane"></div>
-    <aside id="details-pane" aria-label="Document details">
+    <div id="details-divider" data-focus-zone="details-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Details pane" aria-controls="details-pane"></div>
+    <aside id="details-pane" data-focus-zone="details" aria-label="Document details">
       <h2>Details</h2>
       <p id="details">Select a document.</p>
       <section id="recovery" hidden>
