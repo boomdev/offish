@@ -2,7 +2,10 @@
 
 Offish is a planned open-source desktop office suite for working with AI across documents, spreadsheets, presentations, and reference files. Open a local folder, edit visually, and review the changes an agent proposes before they become part of your work. Files use open formats and remain accessible to external tools.
 
-The project is implementing the Phase 1 core workspace. Start with the [master plan](plans/MASTER_PLAN.md), the [planning index](plans/README.md), and the [contributor and agent guidance](AGENTS.md).
+The Phase 1 core workspace is available as an Omarchy development build.
+The [Phase 2 plan](plans/phases/02-ai-document-editor/PLAN.md) is in draft.
+See the [master plan](plans/MASTER_PLAN.md), the [planning index](plans/README.md),
+and the [contributor and agent guidance](AGENTS.md).
 
 ## Run the Phase 1 development build
 

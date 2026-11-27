@@ -1,6 +1,6 @@
 # Phase 1 — Core workspace
 
-Status: In progress. Phase 0 closed on 27 November 2026.\
+Status: Closed on 27 November 2026 with recorded follow-up work.\
 Owner: Project maintainer. Task roles below name the accountable workstream.  
 Master requirements: WS-01–03, ED-01, DOC-01, NFR-01–06.  
 [Master plan](../../MASTER_PLAN.md) · [Phase 0 closeout](../00-research-and-architecture/PLAN.md#12-phase-0-closeout) · [Phase 0 evidence](../../research/phase-0/README.md)
@@ -104,17 +104,17 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | --- | --- | --- |
 | P1-01 | Native offline check passed | The maintainer completed the Omarchy workflow with networking disabled. Backend tests pass for scoped reads and path confinement. |
 | P1-02 | Implemented, native smoke passed | The native keyboard save kept all original bytes plus one insertion. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. |
-| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer verified native clean reload and both conflict resolution actions. |
+| P1-03 | Native conflict checks passed | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer verified native clean reload and both conflict resolution actions. The notification-loss check follows the introduction of a filesystem watcher. |
 | P1-04 | Process-level checks passed | Btrfs process-exit tests pass before and after replacement. Tested ownership, group, mode, POSIX access ACLs and user attributes are preserved. Injected disk-full and permission errors preserve accepted bytes. Abrupt power-loss testing is deferred to Phase 3. |
 | P1-05 | Implemented, native smoke passed | The maintainer verified create and rename (P1-T05a) and confirmed move, duplicate, and recoverable Trash in the native app (P1-T05b–T05c). The maintainer also confirmed that the Omarchy workspace smoke test passed (P1-T05d and workspace naming in P1-T07e). |
 | P1-06 | Complete | Multi-root search, exclusions, revalidation, and index rebuild passed automated checks. Native search result navigation passed. Warm search reached 125.4 ms p95 and explorer startup reached 1824.1 ms p95 on the 10,000-file fixture. |
-| P1-07 | In progress | The native runner verified keyboard navigation, save, and AT-SPI focus through the tested flows. The maintainer deferred screen-reader speech to Phase 2 and real IME until a composing input method is available. Direct editor paint latency remains open. |
-| P1-08 | Development archive built | Locked local builds and suites pass. The archive contains the executable, dependency inventory and collected notices. Remote CI, final distribution review, and named Phase 2 platform environments and owners remain open. |
+| P1-07 | Native keyboard checks passed | The native runner verified keyboard navigation, save, and AT-SPI focus. Speech, real IME and direct WebKitGTK paint timing are tracked in Phase 2. |
+| P1-08 | Development archive built | Locked local builds and suites pass. The archive contains the executable, dependency inventory and collected notices. The handoff records the remaining CI, distribution and platform checks. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
 dependencies installed from the local cache and the editor bundle built.
 The Wayland launch stopped at GTK initialization in the command sandbox.
-Native desktop acceptance remains open.
+The later native runs are recorded in the acceptance pass below.
 
 The maintainer reported a successful native smoke test on Omarchy and
 identified caret contrast, pane resizing, and tab closing as usability
@@ -165,8 +165,8 @@ frontend bundle passed. The maintainer confirmed the native walkthrough.
   with the source intact. Trash has no permanent deletion control yet.
 - On Omarchy Btrfs, all 13 Rust tests passed, including file and folder
   restore after reopening and collision preservation. Frontend remapping
-  tests, editor bundle and locked desktop build passed. Native UI
-  verification remains open for the three new actions.
+  tests, editor bundle and locked desktop build passed. The maintainer
+  later confirmed all three actions in the native app.
 
 
 ### P1-T05d multi-folder workspaces
@@ -298,8 +298,10 @@ the editor’s undo history.
 
 Fourteen Rust tests passed on Btrfs, including picker confinement and link
 rejection. Frontend tests cover popup placement, tab remapping and pane
-sizing. The editor bundle and locked desktop build passed. Native pointer,
-keyboard, picker and clipboard interaction remain to be verified.
+sizing. The editor bundle and locked desktop build passed. The acceptance
+pass records the keyboard workflow that subsequently ran on Omarchy.
+Detailed picker, clipboard and pointer checks carry into native release
+acceptance.
 
 A mocked-bridge frontend check verified that the strip starts empty, gains
 a tab when the first document opens, and becomes empty again when the last
@@ -318,8 +320,8 @@ an entry there, the entry stays in place.
 
 Fifteen Rust tests and the frontend tests passed. These include keyboard
 command selection, permanent removal with no restore point, and preserving
-a linked directory outside the workspace. Native key delivery and focus
-behavior remain to be checked on Omarchy.
+a linked directory outside the workspace. The native acceptance pass later
+verified tree focus, arrow navigation, and opening rows by keyboard.
 
 A mocked-bridge frontend check verified that launch focuses the first
 available Files row and that Up and Down work immediately. It also verified
@@ -335,8 +337,9 @@ intact. Details takes focus only when it has an enabled, visible action.
 Alt+Up focuses File and Alt+Down returns to the latest workspace focus stop.
 
 Frontend tests cover navigation order and ancestor paths. The editor bundle
-and locked desktop build passed. Native Omarchy shortcut delivery and
-caret restoration still need a smoke test.
+and locked desktop build passed. The native acceptance pass verified
+keyboard travel from the editor to the Files tree; caret restoration carries
+into native release acceptance.
 
 A mocked-bridge frontend check verified that a read-only message takes
 focus in the editor pane and Ctrl+W closes its tab. The check also covered
@@ -368,12 +371,19 @@ Confirm the name survives relaunch and is shown in the saved workspace chooser.
 
 ### Phase 1 closeout review
 
-The maintainer approved both transfers below. Phase 2 implementation follows
-Phase 1 closeout.
+The maintainer closed Phase 1 on 27 November 2026. The closeout accepts the
+tested Omarchy development build, offline workflow, process-level recovery
+evidence, and local build and test results. Phase 2 takes the remaining
+release checks and Phase 3 takes the abrupt power-loss test.
 
 | Check | Transfer | Evidence and gate |
 | --- | --- | --- |
+| P1-T03 external changes | Phase 2, Workspace | Periodic rescans already detect external changes in the Phase 1 build. When a filesystem watcher is introduced, verify rescan recovery after a dropped notification. |
 | P1-T07 screen-reader speech | Phase 2, Desktop | Check spoken focus, editor and review announcements in the native acceptance matrix. The Omarchy AT-SPI focus observations remain part of Phase 1 evidence. |
+| P1-T07 real IME | Phase 2, Desktop | Test composition, commit, and save and reopen when a composing input method is available. |
+| P1-T07 direct paint timing | Phase 2, Editor | Measure native keystroke-to-paint against 50 ms p95 on the 50,000-word fixture under P2-T02. The model and earlier frame-proxy checks remain supporting evidence. |
+| P1-T07a–P1-T07e desktop interaction details | Phase 2, Desktop | Repeat the picker, pointer, clipboard, caret restoration, and other detailed interaction checks in the native release matrix. |
+| P1-T08 CI, notices and supported platforms | Phase 2, Release | Verify the remote workflow and review distribution notices before release. Record named macOS and Windows environments and owners before the cross-platform pilot. |
 | P1-T04 abrupt power loss | Phase 3, Workspace | Verify durable saves and recovery journals on a disposable VM or storage fixture. Phase 1 evidence covers process exit and injected errors. ADR-0002 still governs when Phase 2 proposal review can be called ready. Moving that readiness gate requires a separate maintainer decision and linked superseding ADR. |
 
 The locked local build and Rust and JavaScript suites passed. The local
@@ -386,11 +396,6 @@ texts and notices, and five MPL source snapshots. The executable in the
 archive matches the release build and resolves its system libraries on
 the development machine. Final public distribution review remains open.
 
-Phase 1 remains open for direct WebKitGTK keystroke-to-paint timing
-(P1-T07) and final review of the external-change evidence (P1-T03).
-The current build uses periodic rescans
-and has native clean-reload evidence. The plan still calls for a
-notification-loss test. P1-T08 needs a verified remote workflow result,
-final notice review, and the named macOS and Windows environments and
-owners for the Phase 2 handoff. The local session could not verify the
-main-branch GitHub Actions run.
+The main-branch GitHub Actions run could not be verified from the local
+session. The [Phase 2 plan](../02-ai-document-editor/PLAN.md) carries that
+check, the native acceptance work and the cross-platform release gates.

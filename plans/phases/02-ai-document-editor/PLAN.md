@@ -42,9 +42,13 @@ presentation delivery remain in their roadmap phases.
 
 Reuse the Phase 1 explorer, editor, safe save path, external revision checks,
 and scoped local search. Native keyboard save, clean reload, AT-SPI focus,
-and search have passed on Omarchy. Phase 1 closeout remains in progress.
-Screen-reader speech carries into Phase 2 native acceptance. Real IME
-verification is deferred until a composing input method is available.
+and search have passed on Omarchy. Phase 1 is closed, with its
+[handoff](../01-core-workspace/PLAN.md#phase-1-closeout-review) recording
+the remaining checks. Direct paint and screen-reader speech carry into
+Phase 2 native acceptance. Real IME verification is deferred until a
+composing input method is available. Verify remote CI and finish the
+distribution review before release. If a filesystem watcher is introduced,
+verify rescan recovery after a dropped notification.
 The maintainer scheduled abrupt power-loss testing for Phase 3. Under
 ADR-0002, Phase 2 proposal review requires verified power-loss durability
 before it can be called ready. If the test remains scheduled after Phase 2,
@@ -60,10 +64,8 @@ checkpoint guarantees,
 boundaries, and [ADR-0004](../../decisions/ADR-0004-project-license.md) for
 distribution and dependency review.
 
-Planning can proceed alongside Phase 1 checks. Implementation starts after
-the Phase 1 closeout. Before scheduling the cross-platform pilot, the
-maintainer identifies macOS and Windows
-environments and owners and records their OS, WebView and assistive
+Before scheduling the cross-platform pilot, the maintainer identifies
+macOS and Windows environments and owners and records their OS, WebView and assistive
 technology versions. Release requires evidence on both platforms.
 
 ## 5. Technical design
@@ -162,4 +164,4 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-01–P2-03 | Planned | Start with a scoped offline live-preview slice and exact-byte fixture tests. Phase 0 prototypes inform implementation. |
 | P2-04–P2-05 | Planned | Phase 0 proved recovery and partial review in a spike. Integrate the contract with the production editor and safe save path. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
-| P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and close the Phase 1 handoff evidence. |
+| P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
