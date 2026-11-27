@@ -106,7 +106,14 @@ main { display: flex; flex-direction: column; min-width: 0; background: var(--su
 }
 .tab button:focus-visible, .tree-row button:focus-visible { outline-offset: -2px; }
 #editor { flex: 1; min-height: 0; overflow: hidden; }
-#tabs:empty + #editor { display: grid; place-items: center; padding-inline: 1rem; text-align: center; }
+#tabs:empty + #editor {
+  display: grid;
+  place-items: center;
+  padding-inline: 1rem;
+  text-align: center;
+  -webkit-user-select: none;
+  user-select: none;
+}
 #editor p { margin: 1rem; }
 .cm-editor { height: 100%; }
 .cm-scroller { overflow: auto; }

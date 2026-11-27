@@ -33,7 +33,9 @@ to open, F2 to rename, Delete to move to Trash, and Shift+Delete to confirm
 permanent deletion. Shift+F10 opens the row’s actions. Use Alt+Left or
 Alt+Right to move focus between panes and dividers. Alt+Up focuses File,
 and Alt+Down returns focus to the workspace from the menu bar. Left and
-Right move between dialog buttons. Ctrl+W closes the focused editor tab. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
+Right move between dialog buttons. Ctrl+W closes the focused editor tab.
+Ctrl+Tab cycles right through open tabs and Ctrl+Shift+Tab cycles left, wrapping
+at either end. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
 relative to the file’s root folder. Duplicate copies the saved contents.
 Close affected tabs before moving an entry to Trash, then use the
 **Trash** line at the bottom of the Files pane to restore it to its original path. Trash requires the

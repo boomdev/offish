@@ -3,7 +3,7 @@ import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
 import { dialogButtonIndex, floatingMenu } from "./menu.mjs";
-import { ancestorFolders, paneDestination } from "./pane-focus.mjs";
+import { ancestorFolders, paneDestination, tabCycleIndex } from "./pane-focus.mjs";
 
 import { displayPath, isMarkdown, pathInFolder, remapOpenDocuments, renamedPath, treeCommand, workspaceFilePath } from "./explorer.mjs";
 
@@ -87,7 +87,7 @@ function closeTab(item) {
     if (item === active) {
         editor?.destroy();
         editor = active = null;
-        $("editor").textContent = "Select a Markdown file.";
+        $("editor").textContent = "Select a file.";
         ($("files").querySelector("button") ?? $("file-menu")).focus();
     }
     renderTabs();
@@ -96,6 +96,16 @@ function closeTab(item) {
     if (active) {
         $("tabs").querySelector('[aria-current="true"]')?.focus();
     }
+}
+
+function cycleTabs(backward) {
+    if (choosing || mutating || document.querySelector("dialog[open]")) return;
+    const tabs = [...documents.values()];
+    const next = tabCycleIndex(tabs.indexOf(active), tabs.length, backward);
+    if (next === null) return;
+    menus.close();
+    display(tabs[next]);
+    $("tabs").querySelector('[aria-current="true"]')?.scrollIntoView({block: "nearest", inline: "nearest"});
 }
 
 function setupPanes() {
@@ -179,6 +189,11 @@ function labelFor(item) {
     return EditorView.contentAttributes.of({ "aria-label": filename(item.path), tabindex: "0" });
 }
 
+function focusEditorView() {
+    if (editor) editor.focus();
+    else $("editor-pane").focus();
+}
+
 function display(item, focusEditor = true) {
     editor?.destroy();
     $("editor").replaceChildren();
@@ -219,7 +234,7 @@ function display(item, focusEditor = true) {
     renderTabs();
     renderDetails();
     updateTreeSelection();
-    if (focusEditor) editor?.focus();
+    if (focusEditor) focusEditorView();
 }
 
 async function open(path, kind) {
@@ -674,7 +689,7 @@ function setWorkspace(name) {
     active = null;
     editor?.destroy();
     editor = null;
-    $("editor").textContent = "Select a Markdown file.";
+    $("editor").textContent = "Select a file.";
     renderTabs();
     renderDetails();
     renderTree();
@@ -699,8 +714,12 @@ function renderWorkspaceHome(saved) {
 async function loadWorkspaceState() {
     const {name, saved, warning} = await invoke("workspace_state");
     setWorkspace(name ?? "");
-    if (name) await reloadTree();
-    else renderWorkspaceHome(saved);
+    if (name) {
+        await reloadTree();
+        if (!active && document.activeElement === document.body) await focusFiles();
+    } else {
+        renderWorkspaceHome(saved);
+    }
     if (warning) status(warning);
 }
 
@@ -780,7 +799,7 @@ document.addEventListener("keydown", event => {
         event.preventDefault();
         buttons[target].focus();
     } else if (!dialog && event.ctrlKey && event.key.toLowerCase() === "w" &&
-        active && editor?.contentDOM.contains(event.target)) {
+        active && focusZone(event.target) === "editor") {
         event.preventDefault();
         if (!event.repeat) closeTab(active);
     }
@@ -846,10 +865,7 @@ async function focusWorkspaceZone(zone, previous = null) {
             previous !== $("files-pane")) return previous.focus();
         return focusFiles();
     }
-    if (zone === "editor") {
-        if (editor) return editor.focus();
-        return $("editor-pane").focus();
-    }
+    if (zone === "editor") return focusEditorView();
     if (zone === "details") {
         const first = firstDetailsButton();
         if (first && previous?.isConnected && !previous.closest("[hidden]") && !previous.disabled &&
@@ -946,6 +962,7 @@ $("discard").onclick = async () => {
 window.__TAURI__.event.listen("offish-close-request", () => {
     Promise.resolve().then(requestClose).catch(report);
 }).catch(report);
+await window.__TAURI__.event.listen("offish-cycle-tab", ({payload}) => cycleTabs(payload)).catch(report);
 setupPanes();
 await loadWorkspaceState().catch(report);
 async function watch() {

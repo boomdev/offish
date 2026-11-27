@@ -1,10 +1,10 @@
 #[cfg(target_os = "linux")]
 mod linux {
-    use gtk::prelude::*;
+    use gtk::{gdk, glib::Propagation, prelude::*};
     use offish::workspace::{Document, Entry, Save, TrashEntry, Workspace};
     use offish::workspaces::{ActiveWorkspace, CatalogStore, SavedWorkspace, canonical_roots};
     use std::{io, path::PathBuf, sync::Mutex};
-    use tauri::{AppHandle, Manager, State, WebviewWindow};
+    use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
     type Current = Mutex<Runtime>;
     type Response<T> = Result<T, String>;
@@ -456,8 +456,39 @@ mod linux {
         window.destroy().map_err(|error| error.to_string())
     }
 
+    fn tab_cycle_direction(key: gdk::keys::Key, modifiers: gdk::ModifierType) -> Option<bool> {
+        use gdk::{
+            ModifierType as Modifiers,
+            keys::constants::{ISO_Left_Tab as ISO_LEFT_TAB, KP_Tab as KP_TAB, Tab as TAB},
+        };
+
+        let control = Modifiers::CONTROL_MASK;
+        let shift = Modifiers::SHIFT_MASK;
+        if modifiers != control && modifiers != control | shift {
+            return None;
+        }
+        match key {
+            ISO_LEFT_TAB => Some(true),
+            TAB | KP_TAB => Some(modifiers.contains(shift)),
+            _ => None,
+        }
+    }
+
+    fn register_tab_shortcuts(window: WebviewWindow) -> tauri::Result<()> {
+        let gtk_window = window.gtk_window()?;
+        gtk_window.connect_key_press_event(move |_, event| {
+            let modifiers = event.state() & gtk::accelerator_get_default_mod_mask();
+            let Some(backward) = tab_cycle_direction(event.keyval(), modifiers) else {
+                return Propagation::Proceed;
+            };
+            // Consume the shortcut before GTK can use it to move focus.
+            let _ = window.emit_to(window.label(), "offish-cycle-tab", backward);
+            Propagation::Stop
+        });
+        Ok(())
+    }
+
     pub fn run() {
-        use tauri::Emitter;
         tauri::Builder::default()
             .setup(|app| {
                 let mut current = Runtime {
@@ -481,6 +512,9 @@ mod linux {
                     }
                 }
                 app.manage(Mutex::new(current));
+                if let Some(window) = app.get_webview_window("main") {
+                    register_tab_shortcuts(window)?;
+                }
                 Ok(())
             })
             .on_window_event(|window, event| {
@@ -517,6 +551,40 @@ mod linux {
             ])
             .run(tauri::generate_context!())
             .expect("run Offish");
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::tab_cycle_direction;
+        use gtk::gdk::{
+            ModifierType as Modifiers,
+            keys::constants::{ISO_Left_Tab, Tab, w},
+        };
+
+        #[test]
+        fn control_tab_recognizes_both_native_shifted_forms() {
+            let control = Modifiers::CONTROL_MASK;
+            let shift = Modifiers::SHIFT_MASK;
+            assert_eq!(tab_cycle_direction(Tab, control), Some(false));
+            assert_eq!(tab_cycle_direction(Tab, control | shift), Some(true));
+            assert_eq!(
+                tab_cycle_direction(ISO_Left_Tab, control | shift),
+                Some(true)
+            );
+            assert_eq!(tab_cycle_direction(ISO_Left_Tab, control), Some(true));
+        }
+
+        #[test]
+        fn ordinary_focus_and_other_shortcuts_pass_through() {
+            let control = Modifiers::CONTROL_MASK;
+            let shift = Modifiers::SHIFT_MASK;
+            let alt = Modifiers::MOD1_MASK;
+            assert_eq!(tab_cycle_direction(Tab, Modifiers::empty()), None);
+            assert_eq!(tab_cycle_direction(ISO_Left_Tab, shift), None);
+            assert_eq!(tab_cycle_direction(Tab, alt), None);
+            assert_eq!(tab_cycle_direction(Tab, control | alt), None);
+            assert_eq!(tab_cycle_direction(w, control), None);
+        }
     }
 }
 
