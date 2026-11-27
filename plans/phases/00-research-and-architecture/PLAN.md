@@ -1,7 +1,7 @@
 # Phase 0 — Research and architecture
 
-Status: In progress\
-Owner: Project maintainer (assumed; confirm)\
+Status: Closed on 27 November 2026\
+Owner: Project maintainer\
 Master requirements: ED-01, DOC-01, WS-01–03, CHG-01–02, AI-01–02, GIT-01, SYNC-01, SHEET-01, SLIDE-01, REF-01, IO-01–02, LINK-01, EXT-01, NFR-01–06\
 [Master plan](../../MASTER_PLAN.md) · [Initial technology assessment](../../research/INITIAL_TECHNOLOGY_ASSESSMENT.md) · [Phase 0 evidence](../../research/phase-0/README.md) · [Decisions](../../decisions/)
 
@@ -60,7 +60,7 @@ revision continuity, file modes, and the undo boundary in CodeMirror.
 | P0-03c · Composition | DOC-01, NFR-05 | P0-T26: record a real IME composition session and confirm committed Unicode text survives source export and a reload. Synthetic event dispatch alone does not satisfy this check. |
 | P0-03d · Embedded latency | NFR-01, NFR-02 | P0-T27: repeat the 50,000-word input proxy in WebKitGTK, record p50/p95, display refresh, warm/cold state and limitations against the 50 ms target. |
 
-Keep these as spike checks. Record their commands, exact environment, pass/fail results and remaining risks in the Phase 0 evidence before changing ADR-0003's status.
+Record spike commands, environment and results in the Phase 0 evidence. ADR-0003 accepts the direction and retains the outstanding verification listed in the closeout.
 
 Omarchy follow-up status (26 November 2026): P0-T24 and P0-T25 pass. P0-T27
 records p50 and p95 across paced (150 ms) and burst (20 ms) runs after
@@ -110,7 +110,7 @@ Put research results and benchmark references in `plans/research/` and decisions
 
 | Task | Requirement | Status | Evidence / blocker |
 | --- | --- | --- | --- |
-| P0-01 | ED-01, CHG-01, EXT-01 | In progress | Phase 0 early adopter count is one: the maintainer on Omarchy. Further adopters are expected later, and Phase 0 proceeds without them. A synthetic scenario and ecosystem comparison are available. The maintainer confirmed completing the walkthrough. Omarchy reference hardware is recorded. |
+| P0-01 | ED-01, CHG-01, EXT-01 | Done for Phase 0 | Phase 0 early adopter count is one: the maintainer on Omarchy. Further adopters are expected later, and Phase 0 proceeds without them. A synthetic scenario and ecosystem comparison are available. The maintainer confirmed completing the walkthrough. Omarchy reference hardware is recorded. |
 | P0-02 | NFR-01–06 | In progress | Pilot fixtures, Debian cloud baseline, initial budgets and pinned Python spike requirements are available. Physical Omarchy hardware baseline recorded on 26 November 2026. Cargo lockfiles are pending. macOS/Windows environments are needed before the Phase 2 gate. |
 | P0-03 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | In progress | ADR-0003 direction accepted: Tauri 2 with a CodeMirror 6 live preview. The simple syntax-hiding mode is part of the Phase 2 pilot. The committed Tauri host rendered the workspace image in native Wayland WebKitGTK; asset path checks passed (P0-T22). Nested Markdown and keyboard review passed in WebKitGTK (P0-T24–T25). Embedded latency proxy runs recorded with p50/p95 after removing O(N) spike shortcuts (P0-T27): paced (150 ms) work p50 4.0 ms, p95 7.0–26.0 ms, second-frame p50 25.0 ms, p95 32.0–33.0 ms; burst (20 ms) work p50 3.0–4.0 ms, p95 12.0–30.0 ms, second-frame p50 26.0–29.0 ms, p95 32.0–63.0 ms. Real IME, direct paint latency and screen reader checks remain open. Bundled-Chromium shell not yet run. |
 | P0-04 | DOC-01, IO-01, WS-02, NFR-03 | In progress | ADR-0001 direction accepted. Rust source-span, ProseMirror and CodeMirror probes preserved unchanged fixture bytes. The CodeMirror probe handled front matter, CRLF, mixed endings, a BOM and a table cell edit. Nested Markdown passed in WebKitGTK (P0-T24). Visual save is not called ready until the authoritative parser is chosen and the remaining fidelity cases pass, including marks that span syntax. |
@@ -118,4 +118,29 @@ Put research results and benchmark references in `plans/research/` and decisions
 | P0-06 | AI-01–02, NFR-04 | Evidence complete | ADR-0005 direction accepted. Signed-in Omarchy Codex trial passed streaming and interruption (P0-T13). OpenAI SIWC + Codex app-server is confirmed as the shipping sign-in path. Offline host mediation, redaction and `bwrap` isolation pass (P0-T23, 6/6). Live `bwrap`-contained `codex app-server` passed canary isolation, zero direct writes, active-stream interrupt, process cleanup and audit redaction (P0-T28a–T28d). SIWC OAuth flow and macOS/Windows sandboxes are Phase 2 work. Cursor sign-in remains the fallback. |
 | P0-07 | SHEET-01, SLIDE-01, REF-01, IO-01–02, LINK-01 | Done for Phase 0 | Word, PDF, OCR, dense/sparse storage, sample calculations and slide geometry probes run. On 2026-11-26 the maintainer approved deferring PDF reading order, OCR and AI-correction thresholds, and converter distribution to Phase 3, and formula corpus agreement, XLSX/PPTX round trips, and layout fidelity to Phases 4–5. |
 | P0-08 | NFR-06, EXT-01 | In progress | MIT project license adopted. On 2026-11-26 the maintainer accepted the recorded component terms: MIT for the exercised CodeMirror 6, Iced and ProseMirror packages; Apache-2.0 OR MIT for Tauri 2.12.7; MIT OR Apache-2.0 for IronCalc 0.9.1; Apache-2.0 for Tesseract. GPL-family Pandoc and Poppler stay outside the application. The transitive audit waits until Phase 1 pins its lockfile. |
-| P0-09 | All Phase 1 dependencies | In progress | ADRs restructured to the template. ADR-0004 accepted. ADR-0001, ADR-0002, ADR-0003 and ADR-0005 directions accepted on 2026-11-26. ADR-0005 Phase 0 checks are evidenced; its SIWC OAuth client and macOS/Windows sandboxes remain Phase 2 work. Component package terms accepted the same day; the transitive audit waits for the Phase 1 lockfile. Release gates and the Phase 1 handoff remain open. |
+| P0-09 | All Phase 1 dependencies | In progress | ADRs restructured to the template. ADR-0004 accepted. ADR-0001, ADR-0002, ADR-0003 and ADR-0005 directions accepted on 2026-11-26. ADR-0005 Phase 0 checks are evidenced; its SIWC OAuth client and macOS/Windows sandboxes remain Phase 2 work. Component package terms accepted the same day; the transitive audit waits for the Phase 1 lockfile. The Phase 1 plan is linked in the closeout. The maintainer approved the handoff on 27 November 2026. |
+
+## 12. Phase 0 closeout
+
+27 November 2026. The [Phase 1 plan](../01-core-workspace/PLAN.md) defines the handoff and the first offline source-edit milestone. Accepted ADRs establish the implementation direction. The maintainer approved all four transfers below and closed Phase 0. The outstanding checks retain their listed acceptance gates.
+
+| Gate | Closeout status | Evidence or condition |
+| --- | --- | --- |
+| G0-1 | Met | The maintainer confirmed the Omarchy walkthrough. Pilot scope, success measure, and reference environment are recorded. |
+| G0-2 | Closed with approved transfer (D0-01 and D0-02) | ADR-0001 and ADR-0003 establish the editor direction. P0-T16–T20 and P0-T24–T27 provide source, native interaction and latency proxy evidence. D0-01 and D0-02 specify the remaining checks. |
+| G0-3 | Closed with approved transfer (D0-03) | ADR-0002 establishes the review model. The 18 proposal tests passed again on local Btrfs on 27 November 2026. D0-03 carries the remaining filesystem evidence and the cross-platform release checks. |
+| G0-4 | Met for Phase 0 | ADR-0005 and P0-T13, P0-T23 and P0-T28 cover the documented sign-in path, mediation and the Omarchy containment trial. The OAuth client and platform isolation have Phase 2 release gates. |
+| G0-5 | Closed with approved transfer (D0-04) | The ADRs, component terms and format deferrals were accepted. The dependency inventory, notices and development packaging still need final evidence against the Phase 1 lockfiles. See D0-04. |
+
+### Approved transfers
+
+| ID | Requirements | Destination and owner | Bound on the transfer |
+| --- | --- | --- | --- |
+| D0-01 | ED-01, DOC-01, NFR-01, NFR-02, NFR-05 | Desktop · P1-07 / P1-T07 at Phase 1 exit | Verify real IME, native keyboard/AT-SPI and direct paint timing on Omarchy. Use the selected shell provisionally for source editing. Revisit ADR-0003 if it misses an essential criterion. Windows and macOS accessibility stay at the Phase 2 release gate. |
+| D0-02 | DOC-01, IO-01, NFR-03 | Phase 2 document editor owner · before enabling visual saves | Choose the authoritative parser, document the Markdown profile, and verify byte spans and fidelity against the corpus, including marks spanning syntax. Phase 1 edits source directly and preserves bytes. |
+| D0-03 | WS-02, CHG-01, NFR-03 | Workspace · P1-03/P1-04 and P1-T03/P1-T04 at Phase 1 exit. Phase 2 workspace owner · release gate for macOS and Windows | Exercise concurrent writers, symlinks, missed watcher events, full metadata and power loss. Phase 1 exit requires the supported Omarchy save guarantee. Phase 2 proposal acceptance inherits this work and adds review-specific checks. |
+| D0-04 | NFR-06, EXT-01 | Maintainer · P1-08 / P1-T08 before distributing the Phase 1 development build | Audit the resolved Rust and frontend dependency graphs, notices and bundle terms. The previously accepted component terms cover evaluation. |
+
+The maintainer approved D0-01 through D0-04 on 27 November 2026. The accepted Phase 2 agent work
+and the agreed Phase 3–5 format deferrals are recorded separately in ADR-0005
+and P0-07.

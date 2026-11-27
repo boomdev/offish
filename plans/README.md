@@ -6,8 +6,8 @@ The [master plan](MASTER_PLAN.md) defines the product, requirements, architectur
 | --- | --- |
 | [research/](research/) | Source-backed findings, fixtures, benchmarks, and unresolved evidence. See the [Phase 0 report](research/phase-0/README.md). |
 | [decisions/](decisions/) | Proposed, accepted, and superseded architecture decisions |
-| [Phase 0](phases/00-research-and-architecture/PLAN.md) | Research and architecture |
-| [Phase 1](phases/01-core-workspace/) | Core workspace |
+| [Phase 0](phases/00-research-and-architecture/PLAN.md) | Research and architecture · closed |
+| [Phase 1](phases/01-core-workspace/PLAN.md) | Core workspace · ready for implementation |
 | [Phase 2](phases/02-ai-document-editor/) | AI-native document editor |
 | [Phase 3](phases/03-versioning-and-interoperability/) | Versioning and interoperability |
 | [Phase 4](phases/04-spreadsheets/) | AI-native spreadsheets |

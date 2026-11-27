@@ -568,10 +568,12 @@ flowchart LR
     C --> F["External files and generated assets"]
 ~~~
 
-| Gate | Remaining evidence | Owner for next validation |
+The [closeout register](../../phases/00-research-and-architecture/PLAN.md#12-phase-0-closeout) records gate status and the maintainer-approved transfers to Phase 1 and Phase 2. Phase 0 closed on 27 November 2026.
+
+| Gate | Evidence and remaining work | Owner for next validation |
 | --- | --- | --- |
 | G0-1 | Early adopter count is one: the maintainer on Omarchy. The maintainer confirmed completing the walkthrough. Omarchy reference desktop hardware is recorded above. | Maintainer and Phase 0 research owner |
 | G0-2 | CodeMirror opens, renders workspace assets, preserves a nested fixture, and supports keyboard review in native WebKitGTK on Omarchy. The simple syntax-hiding mode is assigned to the Phase 2 pilot. Real IME composition, direct paint latency and broader accessibility remain open. Screen readers on macOS and Windows are Phase 2 release gates. | P0-03/P0-04 |
 | G0-3 | ADR-0002 direction accepted. Hunk rebase, checkpoint restart recovery, modes and editor undo pass on Omarchy (P0-T29). Power-loss durability, full metadata, concurrent writers, symlinks and dropped watch events remain open. | P0-05 |
 | G0-4 | ADR-0005 direction accepted. Omarchy evidence is complete: streaming/interrupt (P0-T13), SIWC+Codex app-server shipping path confirmed, offline host/bwrap isolation (P0-T23), and live `bwrap`-contained Codex app-server with canary isolation, interrupt, cleanup and audit redaction (P0-T28). SIWC OAuth client and macOS/Windows sandboxes are Phase 2 deliverables. | P0-06 |
-| G0-5 | ADR-0001, ADR-0002, ADR-0003 and ADR-0005 directions accepted. P0-07 deferrals approved and component package terms accepted on 2026-11-26. The transitive audit waits for the Phase 1 lockfile. Draft Phase 1 when the foundation gates permit it. | P0-08/P0-09 |
+| G0-5 | ADR-0001, ADR-0002, ADR-0003 and ADR-0005 directions accepted. P0-07 deferrals approved and component package terms accepted on 2026-11-26. The transitive audit waits for the Phase 1 lockfile. The Phase 1 plan is ready for implementation. The remaining license and packaging evidence is listed as D0-04 in the closeout register. | P0-08/P0-09 |
