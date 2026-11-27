@@ -103,12 +103,12 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | Task | Status | Evidence or remaining work |
 | --- | --- | --- |
 | P1-01 | Implemented, native check open | Linux desktop build, folder picker, explorer and three panels. Backend tests pass for scoped reads. The maintainer reported the native Omarchy smoke test worked. The detailed P1-T01 checks remain open. |
-| P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
-| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
+| P1-02 | Implemented, native smoke passed | The native keyboard save kept all original bytes plus one insertion. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. |
+| P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer verified native clean reload and both conflict resolution actions. |
 | P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
 | P1-05 | Implemented, native smoke passed | The maintainer verified create and rename (P1-T05a) and confirmed move, duplicate, and recoverable Trash in the native app (P1-T05b–T05c). The maintainer also confirmed that the Omarchy workspace smoke test passed (P1-T05d and workspace naming in P1-T07e). |
-| P1-06 | Implemented, native smoke passed | The maintainer confirmed native search works. Multi-root search, exclusions, revalidation, and index rebuild pass automated checks. Native search navigation, explorer startup, and performance acceptance remain open. |
-| P1-07 | In progress | P1-T07b implements the tree, tabs, and application menus. Native verification of remaining shortcuts, IME, assistive technology, and editor performance is open. |
+| P1-06 | Complete | Multi-root search, exclusions, revalidation, and index rebuild passed automated checks. Native search result navigation passed. Warm search reached 125.4 ms p95 and explorer startup reached 1824.1 ms p95 on the 10,000-file fixture. |
+| P1-07 | In progress | The native runner verified keyboard navigation, save, and AT-SPI focus through the tested flows. Real IME, screen-reader speech, and direct editor paint latency remain open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
@@ -224,10 +224,10 @@ bridge and rendering latency.
 
 Run the timing fixture with
 `TMPDIR="$PWD" cargo test --locked --no-default-features --release search_timing_fixture -- --ignored --nocapture`.
-GTK initialization blocked the sandbox's native run. The maintainer
-confirmed search works on Omarchy and that Ctrl+Shift+F returns focus to
-the query from the results. Native Up/Down navigation, end-to-end timing,
-peak memory, and cold explorer startup measurement remain open.
+The maintainer confirmed native Up/Down navigation and opening a search
+result, and that Ctrl+Shift+F returns focus to the query from the results.
+The [acceptance run](#phase-1-acceptance-pass) records end-to-end timings
+and host peak memory.
 
 ### Phase 1 acceptance pass
 
@@ -236,12 +236,22 @@ JavaScript suites passed. A frontend check against a disposable on-disk
 file used a mocked Tauri bridge and CodeMirror view with real editor state.
 It verified clean reload of a BOM/CRLF Unicode document after external
 replacement and preservation of a dirty draft and the competing disk
-version on a subsequent external write. Native clean reload remains open.
+version on a subsequent external write.
 
 The 10,000-file release backend fixture measured 72 ms with an empty index.
 Warm search was 30 ms p50 and 35 ms p95. Opening and listing the root took
 1.7 ms p50 and 2.4 ms p95. Peak RSS for the backend test process was 21 MiB.
 The fixture was on Btrfs and the OS page cache was warm from fixture creation.
+
+The maintainer's native Omarchy run reached a usable 10,000-file explorer
+in 1817.7 ms p50 and 1824.1 ms p95 across five launches, passing the 3 s
+target. The successful follow-up launched in 1789.5 ms and verified
+clean reload, keyboard tab switching and save, and AT-SPI focus. The
+save preserved all original bytes plus one typed insertion. Search result
+navigation and opening passed. Across 20 warm queries, time from the
+keyboard request to the AT-SPI result status was 93.5 ms p50 and
+125.4 ms p95, passing the 300 ms target. Offish host peak RSS was
+167776 KiB (about 164 MiB).
 
 GTK failed to initialize in the coding sandbox. Hyprland IPC and the user
 D-Bus connection for AT-SPI were also unavailable. For the native run,
@@ -259,7 +269,8 @@ measures cold process startup against a warm filesystem cache and warm
 search from the keyboard request to the accessible status. It checks
 external clean reload and keyboard focus via AT-SPI. Host peak RSS excludes
 the WebKit subprocesses. Let its temporary window keep keyboard focus.
-The runner's native assertions still need execution in the active session.
+Use `--search-only` to run the search measurements independently of the
+clean-reload and save checks.
 Real IME commit and reload, screen-reader speech, and direct
 keystroke-to-paint timing on the 50,000-word document remain open.
 

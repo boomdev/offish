@@ -93,7 +93,8 @@ def with_name(root, name):
 
 def text_of(node):
     interface = node.get_text_iface()
-    return (interface.get_text(0, -1) or "") if interface else ""
+    # The returned proxy exposes both Accessible and Text methods with this name.
+    return (Atspi.Text.get_text(interface, 0, -1) or "") if interface else ""
 
 
 def focused(root, name, *, editable=False):
@@ -106,14 +107,17 @@ def focused(root, name, *, editable=False):
     return None
 
 
-def search_status(dialog, expected):
-    for node in descendants(dialog):
+def status_messages(root):
+    for node in descendants(root):
         if node.get_role() == Atspi.Role.STATUS_BAR:
             for label in descendants(node):
-                text = f"{label.get_name() or ''} {text_of(label)}"
-                if expected in text and "Scanned at" in text:
-                    return text
-    return None
+                text = f"{label.get_name() or ''} {text_of(label)}".strip()
+                if text:
+                    yield text
+
+
+def search_status(dialog, expected):
+    return next((text for text in status_messages(dialog) if expected in text and "Scanned at" in text), None)
 
 
 def prepare_fixture(path):
@@ -154,6 +158,27 @@ def editor(process, app, file):
     return wait_for(f"focused editor for {file}", lambda: focused(app, file, editable=True), process)
 
 
+def save_keyboard_edit(process, app, path):
+    marker = "Keyboard save marker"
+    original = path.read_bytes()
+    press(process, "-d", "20", marker)
+    wait_for("typed marker in the editor", lambda: focused(app, marker, editable=True), process)
+    press(process, "-M", "ctrl", "-k", "s", "-m", "ctrl")
+    try:
+        wait_for(f"Ctrl+S to update {path.name} on disk", lambda: path.read_bytes() != original, process)
+    except TimeoutError as error:
+        try:
+            status = next(status_messages(app), "No accessible status message.")
+        except GLib.Error:
+            status = "The status message was unavailable."
+        raise RuntimeError(f"{error} AT-SPI saw the edit before Ctrl+S. The file stayed unchanged. {status}") from error
+
+    saved = path.read_bytes()
+    marker_bytes = marker.encode("utf-8")
+    if saved.count(marker_bytes) != 1 or saved.replace(marker_bytes, b"", 1) != original:
+        raise RuntimeError(f"{path.name} changed on disk, but saving did not preserve the original bytes plus one marker.")
+
+
 def keyboard_and_reload(process, app, fixture):
     press(process, "-k", "Down")
     wait_for("first focused file row", lambda: focused(app, FIRST), process)
@@ -177,12 +202,7 @@ def keyboard_and_reload(process, app, fixture):
     editor(process, app, FIRST)
     press(process, "-M", "ctrl", "-k", "Tab", "-m", "ctrl")
     editor(process, app, SECOND)
-    marker = "Keyboard save marker"
-    second = fixture / SECOND
-    original = second.read_text(encoding="utf-8")
-    press(process, "-M", "ctrl", "-k", "End", "-m", "ctrl", marker)
-    press(process, "-M", "ctrl", "-k", "s", "-m", "ctrl")
-    wait_for("keyboard save on disk", lambda: second.read_text(encoding="utf-8") == original + marker, process)
+    save_keyboard_edit(process, app, fixture / SECOND)
     press(process, "-M", "ctrl", "-k", "w", "-m", "ctrl")
     editor(process, app, FIRST)
     print("Native clean reload and keyboard navigation passed. AT-SPI exposed focus throughout.", flush=True)
@@ -232,6 +252,8 @@ def main():
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/offish")
     parser.add_argument("--startup-runs", type=int, default=5)
     parser.add_argument("--search-runs", type=int, default=20)
+    parser.add_argument("--search-only", action="store_true",
+                        help="Measure startup and search independently of the reload and save checks.")
     args = parser.parse_args()
     if not args.binary.is_file() or args.startup_runs < 1 or args.search_runs < 2:
         parser.error("Build Offish first and use positive startup and search sample counts.")
@@ -254,7 +276,8 @@ def main():
                     starts.append((time.monotonic() - started) * 1000)
                     if index == args.startup_runs - 1:
                         report("Cold process to usable explorer", starts, 3000)
-                        keyboard_and_reload(process, app, fixture)
+                        if not args.search_only:
+                            keyboard_and_reload(process, app, fixture)
                         warm = measure_search(process, app, args.search_runs)
                         report("Warm search to AT-SPI status (includes input and polling)", warm, 300)
                         status = Path(f"/proc/{process.pid}/status").read_text(encoding="utf-8")

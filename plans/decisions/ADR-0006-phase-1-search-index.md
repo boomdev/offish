@@ -1,6 +1,6 @@
 # ADR-0006 — Revalidate a bounded local search index
 
-Status: Implemented for the Phase 1 search slice. Native acceptance pending.\
+Status: Implemented for Phase 1. Native search acceptance passed.\
 Date: 2026-11-27\
 Requirements and phase: WS-03, NFR-02, NFR-04 · Phase 1 (P1-06)\
 Related decisions: [ADR-0003](ADR-0003-desktop-and-first-editor.md)
@@ -47,6 +47,7 @@ set, partial scans and the last scan time. Repository-local Git exclude
 files, global Git configuration, content outside registered roots, and
 unsaved editor drafts are outside the initial search scope.
 
-Revisit persistent SQLite storage after P1-T06 timings and usability
-validation on Omarchy, especially if reconciling files exceeds the warm
-search budget or repeated launches make the first search too slow.
+The 10,000-file native Omarchy fixture passed the warm search budget
+at 125.4 ms p95. Revisit persistent SQLite storage if larger workspaces
+exceed the warm search budget or repeated launches make the first search
+too slow. See the [Phase 1 acceptance run](../phases/01-core-workspace/PLAN.md#phase-1-acceptance-pass).
