@@ -1,3 +1,4 @@
+pub mod review;
 pub mod search;
 mod trash;
 pub use trash::TrashEntry;
@@ -474,14 +475,8 @@ impl Workspace {
         candidate: impl FnOnce(&str) -> io::Result<Cow<'a, str>>,
         mut hook: impl FnMut(SaveStep) -> io::Result<()>,
     ) -> io::Result<Save> {
-        if !is_markdown(Path::new(path)) {
-            return Err(invalid("Only Markdown files up to 16 MiB are editable."));
-        }
-        let (directory, name) = self.parent(path)?;
-        // Open an independent descriptor for the lock, including for root files.
-        let directory = open(&descriptor(&directory).join("."), true)?;
-        directory.lock()?;
-        let target = descriptor(&directory).join(&name);
+        let locked = self.locked_markdown(path)?;
+        let target = locked.target();
         let (metadata, bytes) = snapshot(&target)?;
         if revision(&metadata, &bytes) != base {
             return Ok(Save::Conflict {
@@ -499,17 +494,11 @@ impl Workspace {
                 revision: base.into(),
             });
         }
-        if metadata.nlink() != 1 {
-            return Err(invalid(
-                "Saving files with multiple hard links is unsupported.",
-            ));
-        }
-
         let recovery = self.recovery_directory()?;
         let journal = recovery
             .as_ref()
             .map(|recovery| {
-                self.journal_name(&directory, &name)
+                self.journal_name(&locked.directory, &locked.name)
                     .map(|name| descriptor(recovery).join(name))
             })
             .transpose()?;
@@ -522,27 +511,89 @@ impl Workspace {
                 }
             }
         }
-        let (mut staged, stage) = stage_file(&directory)?;
-        hook(SaveStep::StageWrite)?;
+        if let Some(recovery) = &recovery {
+            self.check_review_pending(&locked, recovery, base)?;
+        }
+        let result = locked.replace(base, &metadata, text, |step, _, _| {
+            if step == SaveStep::JournalSynced
+                && let (Some(recovery), Some(journal)) = (&recovery, &journal)
+            {
+                let (mut file, pending) = stage_file(recovery)?;
+                serde_json::to_writer(&mut file, &Pending { text: text.into() })?;
+                file.sync_all()?;
+                pending.replace(journal)?;
+                recovery.sync_all()?;
+            }
+            hook(step)
+        })?;
+        if matches!(result, Save::Saved { .. })
+            && let (Some(recovery), Some(journal)) = (&recovery, &journal)
+        {
+            // A remaining journal can still recognize the committed bytes.
+            if fs::remove_file(journal).is_ok() {
+                let _ = recovery.sync_all();
+            }
+        }
+        Ok(result)
+    }
+
+    fn locked_markdown(&self, path: &str) -> io::Result<LockedTarget> {
+        if !is_markdown(Path::new(path)) {
+            return Err(invalid("Only Markdown files up to 16 MiB are editable."));
+        }
+        let (directory, name) = self.parent(path)?;
+        // Open an independent descriptor for the lock, including for root files.
+        let directory = open(&descriptor(&directory).join("."), true)?;
+        directory.lock()?;
+        Ok(LockedTarget { directory, name })
+    }
+}
+
+struct LockedTarget {
+    directory: File,
+    name: PathBuf,
+}
+
+impl LockedTarget {
+    fn target(&self) -> PathBuf {
+        descriptor(&self.directory).join(&self.name)
+    }
+
+    /// The caller has already captured the expected revision under the directory lock.
+    fn replace(
+        &self,
+        base: &str,
+        metadata: &Metadata,
+        text: &str,
+        mut hook: impl FnMut(SaveStep, &str, &Path) -> io::Result<()>,
+    ) -> io::Result<Save> {
+        if metadata.nlink() != 1 {
+            return Err(invalid(
+                "Saving files with multiple hard links is unsupported.",
+            ));
+        }
+        let target = self.target();
+        let (mut staged, stage) = stage_file(&self.directory)?;
+        let staged_name = PathBuf::from(
+            stage
+                .0
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .expect("active stage filename"),
+        );
+        hook(SaveStep::StageWrite, base, &staged_name)?;
         staged.write_all(text.as_bytes())?;
         let source = open(&target, false)?;
-        if source.metadata()?.ino() != metadata.ino() || source.metadata()?.dev() != metadata.dev()
-        {
+        if identity(&source.metadata()?) != identity(metadata) {
             let (current, bytes) = snapshot(&target)?;
             return Ok(Save::Conflict {
                 disk: document(&current, bytes),
             });
         }
-        preserve_metadata(&source, &staged, &metadata)?;
+        preserve_metadata(&source, &staged, metadata)?;
         staged.sync_all()?;
-        if let (Some(recovery), Some(journal)) = (&recovery, &journal) {
-            let (mut file, pending) = stage_file(recovery)?;
-            serde_json::to_writer(&mut file, &Pending { text: text.into() })?;
-            file.sync_all()?;
-            pending.replace(journal)?;
-            recovery.sync_all()?;
-        }
-        hook(SaveStep::JournalSynced)?;
+        let postimage = revision(&staged.metadata()?, text.as_bytes());
+        hook(SaveStep::JournalSynced, &postimage, &staged_name)?;
         let (current, bytes) = snapshot(&target)?;
         if revision(&current, &bytes) != base {
             return Ok(Save::Conflict {
@@ -556,16 +607,10 @@ impl Workspace {
         }
         // A non-cooperating external writer can still race this final check.
         stage.replace(&target)?;
-        hook(SaveStep::Replaced)?;
-        directory.sync_all()?;
-        if let (Some(recovery), Some(journal)) = (&recovery, &journal) {
-            // If cleanup fails, reading the journal can still recognize the committed bytes.
-            if fs::remove_file(journal).is_ok() {
-                let _ = recovery.sync_all();
-            }
-        }
+        hook(SaveStep::Replaced, &postimage, &staged_name)?;
+        self.directory.sync_all()?;
         Ok(Save::Saved {
-            revision: revision(&staged.metadata()?, text.as_bytes()),
+            revision: postimage,
         })
     }
 }

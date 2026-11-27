@@ -7,7 +7,7 @@ use std::{io, ops::Range};
 
 pub const PROFILE_VERSION: u32 = 1;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceEdit {
     pub from: usize,

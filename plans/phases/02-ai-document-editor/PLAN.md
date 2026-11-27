@@ -1,6 +1,6 @@
 # Phase 2 — AI-native document editor
 
-**Status** In progress · Offline live preview\
+**Status** In progress · Proposal acceptance and recovery\
 **Owner** Project maintainer  
 **Master requirements** DOC-01, ED-01, WS-02, WS-03, AI-01, AI-02, CHG-01, NFR-01–06  
 [Master plan](../../MASTER_PLAN.md) · [Phase 1 evidence](../01-core-workspace/PLAN.md) · [Phase 0 fixtures and research](../../research/phase-0/README.md)
@@ -166,8 +166,9 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | --- | --- | --- |
 | P2-01 | Complete | Profile v1 is documented. UTF-16 and absolute byte ranges round-trip, and revision-bound edits use the existing workspace save path. |
 | P2-02 | Complete | The maintainer verified live preview, table source reveal, and independent scrolling on Omarchy. Native paint timing remains open under P2-T02. |
-| P2-03 | Implemented, native check pending | Simple mode edits supported cells in place. Verify that Shift+Enter adds an in-cell break and that Enter applies it without adding a Markdown source row. |
-| P2-04–P2-05 | Planned | Phase 0 proved recovery and partial review in a spike. Integrate the contract with the production editor and safe save path. |
+| P2-03 | Complete | The maintainer confirmed the Omarchy check and pushed the changes. |
+| P2-04 | In progress | The single-document workspace backend and restart fixtures pass. Verify checkpoint behavior across file moves and the outstanding native durability and platform gates. |
+| P2-05 | Planned | Connect deterministic proposals, review controls, and the editor undo boundary to the workspace backend. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
 
@@ -237,3 +238,35 @@ confirm the blank line renders, then undo, redo, and save. In Source mode,
 confirm the cell contains two `<br>` tags and that surrounding pipes and
 spacing remain as before. The automated session could build the app but
 GTK initialization prevented the native launch.
+
+The maintainer later confirmed the native check and pushed the changes.
+
+### P2-04 first implementation slice
+
+Under CHG-01, WS-02, NFR-03 and NFR-04, validate one Markdown proposal
+against the captured revision and apply explicitly selected, independent
+hunks. Rebase the remaining byte spans against the committed revision.
+Use the workspace's locked, metadata-preserving replacement path and a
+private checkpoint journal. Exercise partial acceptance, restore, and
+the preimage, postimage and external-conflict recovery branches for
+P2-T01 and P2-T03. The internal journal representation is provisional
+pending native durability and platform evidence under ADR-0002.
+
+The Linux workspace backend now applies selected hunks under the same
+directory lock and metadata-preserving replacement path used for saves.
+It checks the proposal revision, rebases and revalidates the remaining
+hunks, and retains up to 20 private preimages per document. Restore
+requires the latest revision and an intact history chain. An interrupted
+replacement is reconciled against the captured preimage and expected
+postimage revisions. If the disk matches neither, Offish preserves the
+disk and private preimage. Explicitly keeping the disk revision retains
+the preimage for inspection and breaks the restore chain.
+
+The locked Rust suite passed 40 tests. The P2-T01 and P2-T03 fixtures
+check byte-exact restore with BOM, CRLF and Unicode, rebase, competing
+acceptances, history retention and deletion, and subprocess exit before
+and after both acceptance and restore. The native power-loss and
+cross-platform gates remain open. File moves currently change the
+path-based history lookup. Verify how history follows a file before
+exposing review in the editor. P2-05 will connect the backend to the
+review UI and seal the editor undo history on acceptance.
