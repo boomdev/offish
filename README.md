@@ -15,11 +15,18 @@ npm --prefix apps/desktop run build
 cargo run --locked -p offish -- /absolute/path/to/a/test-folder
 ```
 
-Launch without a folder argument and use **File → Open Folder** or
-**File → Open File**. Use a disposable
-copy of the pilot fixtures for the first run. Select a Markdown file, edit
-the source, and use **File → Save** or Ctrl+S. The Files panel has
-**New file** and **New folder** controls. Each entry’s **⋯** menu
+Launch without a folder argument to restore the last workspace. If no
+workspace was active, choose a saved workspace or select **Create Workspace**
+to pick one or more folders. **File → Add Folder to Workspace** appends folders
+to the Files tree and saves the workspace automatically in Offish’s local
+configuration. **File → Close Workspace** returns to the saved workspace
+chooser. **File → Open Folder** starts a single-folder workspace, and
+**File → Open File** opens a document directly.
+
+Use a disposable copy of the pilot fixtures for the first run. Select a Markdown file, edit
+the source, and use **File → Save** or Ctrl+S. Hover or focus a folder row
+in the Files pane to show its **New file** and **New folder** icons. Use the
+pencil next to the workspace name to rename it. Each file or subfolder’s **⋯** menu
 offers Rename, Move, Duplicate, and Move to Trash. Expand folders directly
 in the tree. With focus on a tree row, use the arrow keys to navigate, Enter
 to open, F2 to rename, Delete to move to Trash, and Shift+Delete to confirm
@@ -27,9 +34,9 @@ permanent deletion. Shift+F10 opens the row’s actions. Use Alt+Left or
 Alt+Right to move focus between panes and dividers. Alt+Up focuses File,
 and Alt+Down returns focus to the workspace from the menu bar. Left and
 Right move between dialog buttons. Ctrl+W closes the focused editor tab. **Edit** includes undo, redo, and plain-text clipboard actions. Move takes a folder path
-relative to the workspace root. Duplicate copies the saved contents.
+relative to the file’s root folder. Duplicate copies the saved contents.
 Close affected tabs before moving an entry to Trash, then use the
-**Trash** button to restore it to its original path. Trash requires the
+**Trash** line at the bottom of the Files pane to restore it to its original path. Trash requires the
 workspace and private recovery storage to support atomic renames between
 them. An existing entry at the original path blocks restore. The details panel displays
 a conflicting disk version while the draft remains in the editor.

@@ -2,6 +2,21 @@ export function pathInFolder(folder, name) {
     return folder ? folder + "/" + name : name;
 }
 
+export function displayPath(path, roots) {
+    const index = path.indexOf("/");
+    const key = index === -1 ? path : path.slice(0, index);
+    const root = roots.find(entry => entry.name === key);
+    return root?.label ? root.label + (index === -1 ? "" : path.slice(index)) : path;
+}
+
+export function workspaceFilePath(path, roots) {
+    const separator = path.indexOf("/");
+    const key = separator < 0 ? path : path.slice(0, separator);
+    const root = roots.find(entry => entry.name === key)?.hint;
+    if (!root) return null;
+    return separator < 0 ? root : root.replace(/\/$/, "") + path.slice(separator);
+}
+
 export function renamedPath(path, from, to) {
     if (path === from) return to;
     return path.startsWith(from + "/") ? to + path.slice(from.length) : path;
@@ -20,7 +35,7 @@ export function isMarkdown(path) {
     return /.+\.(?:md|markdown)$/i.test(name);
 }
 
-export function treeCommand(rows, index, key, shift = false) {
+export function treeCommand(rows, index, key, shift = false, actionFocused = false) {
     const row = rows[index];
     if (!row || row.disabled) return null;
     if (key === "ArrowUp" || key === "ArrowDown") {
@@ -41,7 +56,8 @@ export function treeCommand(rows, index, key, shift = false) {
             next.path.startsWith(row.path + "/") && !next.path.slice(row.path.length + 1).includes("/"));
         return row.expanded && child ? {kind: "focus", path: child.path} : {kind: "stay"};
     }
-    if (key === "Enter") return {kind: "activate"};
+    if (key === "Enter") return actionFocused ? null : {kind: "activate"};
+    if (row.root) return null;
     if (key === "Delete") return {kind: shift ? "delete" : "trash"};
     if (key === "F2") return {kind: "rename"};
     if (key === "ContextMenu" || key === "F10" && shift) return {kind: "menu"};

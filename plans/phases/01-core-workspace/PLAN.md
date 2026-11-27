@@ -67,10 +67,12 @@ Automate Rust filesystem and index checks on disposable folders. Use process-lev
 | P1-T05a | WS-01, WS-02, ED-01 | Create and rename files and folders within the workspace. Reject invalid paths and collisions without touching existing entries. An open tab and its unsaved draft follow a rename. |
 | P1-T05b | WS-01, WS-02, ED-01 | Move a file or folder within the workspace, retaining open drafts. Duplicate saved files and folder trees independently. Reject collisions and unsupported entries before publishing a copy. |
 | P1-T05c | WS-01, WS-02, NFR-03, NFR-04 | Move to private Trash and restore after reopening the workspace. A collision at the original path leaves both entries intact. If the filesystem cannot move the entry to Trash, leave it in place. |
+| P1-T05d | WS-01, WS-02, ED-01, NFR-04 | Add multiple ordered roots from File or create a workspace from one or more folders. Preserve drafts when adding roots. Persist the workspace and restore it on normal launch. With no recent workspace, show Create Workspace above any saved tiles. Center the button by itself when the catalog is empty. Keep access scoped to registered roots. |
 | P1-T07a | ED-01, NFR-05 | The caret is visible in light and dark themes. Resize each side pane with mouse and arrow keys while keeping the editor usable. Close active and background tabs, with confirmation before discarding a dirty draft. |
-| P1-T07b | WS-01, ED-01, NFR-05 | Expand and collapse the Files tree, open row actions with the three-dot button, switch and close document tabs, and operate the File and Edit menus by pointer and keyboard. Verify commands preserve workspace scope and unsaved drafts. |
+| P1-T07b | WS-01, ED-01, NFR-05 | Expand and collapse the Files tree, open row actions with the three-dot button, switch and close document tabs, and operate the File and Edit menus by pointer and keyboard. With no open tabs, hide the strip and center the prompt in the editor pane. Verify commands preserve workspace scope and unsaved drafts. |
 | P1-T07c | WS-01, WS-02, NFR-05 | Navigate visible tree rows with arrow keys. Enter opens the selected document. F2 opens rename. Delete confirms a move to Trash. Shift+Delete separately confirms permanent deletion. Open drafts retain their existing protections. |
 | P1-T07d | ED-01, NFR-05 | Alt+Left/Right moves through panes and dividers. Files reveals the active document. The editor restores its caret. Details focuses its first available button. Alt+Up focuses File, and Alt+Down returns to the last workspace control. Left/Right moves between dialog buttons. Ctrl+W closes the editor tab with the existing draft protection. |
+| P1-T07e | WS-01, WS-02, NFR-05 | Show folder creation actions on hover and keyboard focus, and create entries in the chosen folder. Keep Trash visible while the tree scrolls. Rename the workspace without disturbing its roots or open drafts, and keep the new name across relaunch and in the workspace chooser. |
 | P1-T08 | NFR-01, NFR-06 | Locked builds and fixture checks pass in CI. The development package and notices match the audited dependency set. Record Windows and macOS environments and owners for Phase 2. |
 
 ## 9. Risks and open questions
@@ -94,7 +96,7 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 | P1-02 | Implemented, native check open | CodeMirror source tabs and Rust saves. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. The maintainer reported a successful native smoke test. Retain the fixture matrix for formal acceptance. |
 | P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer confirmed both native conflict resolution actions. Verify clean reload separately. |
 | P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
-| P1-05 | In progress | The maintainer verified create and rename (P1-T05a). Move, duplicate, and recoverable Trash pass Btrfs backend and tab remapping tests (P1-T05b–T05c). The maintainer confirmed the new actions in the native app. Local workspace settings remain open. |
+| P1-05 | In progress | The maintainer verified create and rename (P1-T05a). Move, duplicate, and recoverable Trash pass Btrfs backend and tab remapping tests (P1-T05b–T05c). The maintainer confirmed the new actions in the native app. Workspace settings are implemented, with the native Omarchy check open (P1-T05d). |
 | P1-06–P1-07 | Planned | Search remains planned. P1-T07b implements the tree, tabs, and application menus. Native verification of that UI and the broader editor acceptance checks remain open. |
 | P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
 
@@ -157,6 +159,30 @@ frontend bundle passed. The maintainer confirmed the native walkthrough.
   verification remains open for the three new actions.
 
 
+### P1-T05d multi-folder workspaces
+
+Offish saves the ordered root list and last workspace in its local application
+configuration. **File → Close Workspace** clears the last selection and
+returns to saved workspaces. **File → Exit** retains the last selection.
+
+On 2026-11-27 the locked desktop build and Rust and JavaScript suites passed.
+The tests cover restoring the catalog, clearing the last selection while
+retaining saved entries, root order and deduplication, same-named files under
+different roots, and unavailable roots. A native launch in the coding sandbox
+failed during GTK initialization.
+
+A frontend smoke test with a mocked Tauri bridge confirmed the creation
+button in both chooser states and confirmed that a restored workspace
+skips the chooser.
+
+On Omarchy, start with an empty Offish configuration and verify the centered
+creation button and multiple folder selection. Open a file and type without
+saving, then add a folder and check that its root appears below the existing
+roots while the draft remains open. Save, exit, and relaunch without a folder
+argument. Confirm the same roots reappear in order. Choose **File → Close
+Workspace**, check that the saved tiles appear below **Create Workspace**,
+and reopen the workspace from its tile.
+
 ### P1-T07b workspace UX
 
 The Files pane expands folders in place and uses one floating menu for each
@@ -170,6 +196,10 @@ Fourteen Rust tests passed on Btrfs, including picker confinement and link
 rejection. Frontend tests cover popup placement, tab remapping and pane
 sizing. The editor bundle and locked desktop build passed. Native pointer,
 keyboard, picker and clipboard interaction remain to be verified.
+
+A mocked-bridge frontend check verified that the strip starts empty, gains
+a tab when the first document opens, and becomes empty again when the last
+tab closes. The empty-state CSS hides the strip and centers the editor prompt.
 
 
 ### P1-T07c keyboard follow-up
@@ -199,3 +229,19 @@ Alt+Up focuses File and Alt+Down returns to the latest workspace focus stop.
 Frontend tests cover navigation order and ancestor paths. The editor bundle
 and locked desktop build passed. Native Omarchy shortcut delivery and
 caret restoration still need a smoke test.
+
+### P1-T07e folder actions and workspace naming
+
+The folder row actions create files and folders in the chosen root or
+subfolder. The tree scrolls independently of its Trash footer. Workspace
+rename saves a display name in the existing catalog without switching
+workspaces or reopening documents.
+
+On 2026-11-27 the editor bundle, locked desktop build, 18 Rust tests,
+and JavaScript suites passed. The new tests cover Enter on a focused
+row action and persisting the name through reopening and adding roots.
+GTK initialization blocked the coding sandbox’s native smoke test. On
+Omarchy, check the actions on a hovered root and a keyboard-focused
+subfolder, scroll the tree with Trash in view, and rename the workspace
+using the pencil at the right edge of the Files pane while a draft is open.
+Confirm the name survives relaunch and is shown in the saved workspace chooser.

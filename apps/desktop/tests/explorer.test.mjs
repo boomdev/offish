@@ -1,6 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {remapOpenDocuments, treeCommand} from "../explorer.mjs";
+import {displayPath, remapOpenDocuments, treeCommand, workspaceFilePath} from "../explorer.mjs";
+
+test("root labels are shown without exposing routing IDs", () => {
+    const roots = [{name: "root-0", label: "Notes"}, {name: "root-1", label: "Project"}];
+    assert.equal(displayPath("root-0/brief.md", roots), "Notes/brief.md");
+    assert.equal(displayPath("root-1/brief.md", roots), "Project/brief.md");
+    assert.equal(displayPath("root-1", roots), "Project");
+});
+
+test("overlapping roots resolve both tab paths to the same file", () => {
+    const roots = [{name: "root-0", hint: "/"}, {name: "root-1", hint: "/documents"}];
+    assert.equal(workspaceFilePath("root-0/documents/notes.md", roots), "/documents/notes.md");
+    assert.equal(workspaceFilePath("root-1/notes.md", roots), "/documents/notes.md");
+    assert.equal(workspaceFilePath("root-1", roots), "/documents");
+});
+
+test("workspace roots can expand and collapse but cannot be renamed or deleted", () => {
+    const rows = [{path: "root-0", root: true, expanded: false}, {path: "root-1", root: true, expanded: true}];
+    assert.deepEqual(treeCommand(rows, 0, "ArrowRight"), {kind: "activate"});
+    assert.deepEqual(treeCommand(rows, 0, "ArrowDown"), {kind: "focus", path: "root-1"});
+    assert.deepEqual(treeCommand(rows, 1, "ArrowLeft"), {kind: "activate"});
+    for (const key of ["Delete", "F2", "ContextMenu"]) {
+        assert.equal(treeCommand(rows, 0, key), null);
+    }
+});
+
+test("Enter on a focused folder action is left to the button", () => {
+    const rows = [{path: "root-0/Notes", expanded: false}];
+    assert.equal(treeCommand(rows, 0, "Enter", false, true), null);
+    assert.deepEqual(treeCommand(rows, 0, "Enter"), {kind: "activate"});
+});
 
 test("folder rename retains the very same live drafts for descendants", () => {
     const draft = {text: "pending", base: {revision: "abc"}};

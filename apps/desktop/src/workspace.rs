@@ -39,6 +39,8 @@ fn open(path: &Path, directory: bool) -> io::Result<File> {
 pub struct Entry {
     pub name: String,
     pub kind: &'static str,
+    pub label: Option<String>,
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -204,7 +206,12 @@ impl Workspace {
             } else {
                 "unsupported"
             };
-            entries.push(Entry { name, kind });
+            entries.push(Entry {
+                name,
+                kind,
+                label: None,
+                hint: None,
+            });
         }
         entries.sort_by(|a, b| (a.kind != "folder", &a.name).cmp(&(b.kind != "folder", &b.name)));
         Ok(entries)

@@ -1,6 +1,7 @@
 #![cfg(target_os = "linux")]
 
 use offish::workspace::{Save, Workspace};
+use offish::workspaces::{ActiveWorkspace, CatalogStore, canonical_roots};
 use std::{
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt, symlink},
@@ -34,6 +35,151 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+#[test]
+fn workspace_catalog_restores_order_and_keeps_saved_entries_when_closed() {
+    let fixture = Fixture::new();
+    let first = fixture.0.join("first");
+    let second = fixture.0.join("second");
+    let alias = fixture.0.join("alias");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&second).unwrap();
+    symlink(&first, &alias).unwrap();
+    let config = fixture.0.join("config");
+    let store = CatalogStore::new(config.clone());
+    assert!(store.load().unwrap().saved.is_empty());
+
+    let first_roots = canonical_roots(vec![first.clone(), alias]).unwrap();
+    assert_eq!(first_roots, [first.canonicalize().unwrap()]);
+    let original = store
+        .update(|catalog| catalog.remember(first_roots))
+        .unwrap();
+    let roots = canonical_roots(vec![second.clone(), first.clone()]).unwrap();
+    let added = store
+        .update(|catalog| catalog.add_roots(&original, roots.clone()))
+        .unwrap();
+    assert_eq!(added.id, original.id);
+    assert_eq!(
+        added.roots,
+        [
+            first.canonicalize().unwrap(),
+            second.canonicalize().unwrap()
+        ]
+    );
+    let other = store
+        .update(|catalog| catalog.remember(vec![second.canonicalize()?]))
+        .unwrap();
+
+    let reopened = CatalogStore::new(config);
+    assert_eq!(reopened.load().unwrap().recent(), Some(&other));
+    assert_eq!(
+        reopened.update(|catalog| catalog.reopen(added.id)).unwrap(),
+        added
+    );
+    assert_eq!(reopened.load().unwrap().recent(), Some(&added));
+    reopened
+        .update(|catalog| {
+            catalog.last = None;
+            Ok(())
+        })
+        .unwrap();
+    let catalog = reopened.load().unwrap();
+    assert!(catalog.recent().is_none());
+    assert_eq!(catalog.saved, [added, other]);
+}
+
+#[test]
+fn workspace_rename_persists_without_changing_identity_or_roots() {
+    let fixture = Fixture::new();
+    let first = fixture.0.join("first");
+    let second = fixture.0.join("second");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&second).unwrap();
+    let config = fixture.0.join("config");
+    let store = CatalogStore::new(config.clone());
+    let original = store
+        .update(|catalog| catalog.remember(canonical_roots(vec![first.clone()])?))
+        .unwrap();
+    // Existing settings omit the optional name and retain the inferred label.
+    assert_eq!(store.load().unwrap().recent().unwrap().name(), "first");
+    assert!(
+        !fs::read_to_string(config.join("workspaces.json"))
+            .unwrap()
+            .contains("custom_name")
+    );
+
+    assert_eq!(
+        store
+            .update(|catalog| catalog.rename(original.id, "  Notes & Plans  "))
+            .unwrap(),
+        "Notes & Plans"
+    );
+    for invalid in ["   ", "split\nname"] {
+        assert!(
+            store
+                .update(|catalog| catalog.rename(original.id, invalid))
+                .is_err()
+        );
+    }
+    let reopened = CatalogStore::new(config);
+    let recent = reopened.load().unwrap().recent().unwrap().clone();
+    assert_eq!(recent.id, original.id);
+    assert_eq!(recent.roots, original.roots);
+    assert_eq!(recent.name(), "Notes & Plans");
+    let added = reopened
+        .update(|catalog| catalog.add_roots(&recent, canonical_roots(vec![second])?))
+        .unwrap();
+    assert_eq!(added.name(), "Notes & Plans");
+    let saved = reopened
+        .update(|catalog| catalog.reopen(original.id))
+        .unwrap();
+    assert_eq!(saved, added);
+}
+
+#[test]
+fn multiple_roots_route_same_named_files_and_keep_open_handles_on_append() {
+    let fixture = Fixture::new();
+    let first = fixture.0.join("first");
+    let second = fixture.0.join("second");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&second).unwrap();
+    fs::write(first.join("brief.md"), "first root").unwrap();
+    fs::write(second.join("brief.md"), "second root").unwrap();
+    let store = CatalogStore::new(fixture.0.join("config"));
+    let recovery = fixture.0.join("recovery");
+    let original = store
+        .update(|catalog| catalog.remember(canonical_roots(vec![first.clone()])?))
+        .unwrap();
+    let mut active = ActiveWorkspace::open(original.clone(), &recovery);
+    let added = store
+        .update(|catalog| catalog.add_roots(&original, canonical_roots(vec![second.clone()])?))
+        .unwrap();
+    fs::rename(&first, fixture.0.join("previous-first")).unwrap();
+    symlink(&second, &first).unwrap();
+    active.extend(added.clone(), &recovery);
+
+    for (index, expected) in ["first root", "second root"].into_iter().enumerate() {
+        let path = format!("root-{index}/brief.md");
+        let (_, root, relative) = active.route(&path).unwrap();
+        assert_eq!(root.read(relative).unwrap().text.as_deref(), Some(expected));
+    }
+    assert_eq!(
+        active
+            .selected_file(&second.canonicalize().unwrap().join("brief.md"))
+            .unwrap()
+            .as_deref(),
+        Some("root-1/brief.md")
+    );
+    assert!(active.route("root-2/brief.md").is_err());
+    let (_, root, outside) = active.route("root-0/../second/brief.md").unwrap();
+    assert!(root.read(outside).is_err());
+
+    let reopened = ActiveWorkspace::open(added, &recovery);
+    let entries = reopened.root_entries();
+    assert_eq!(entries[0].kind, "unavailable");
+    assert_eq!(entries[1].label.as_deref(), Some("second"));
+    assert!(reopened.route("root-0/brief.md").is_err());
 }
 
 #[test]
