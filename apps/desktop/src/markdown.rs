@@ -1,5 +1,7 @@
 //! The coordinate and exact-byte edit contract for Offish Markdown profile v1.
 
+pub mod table_cell;
+
 use serde::{Deserialize, Serialize};
 use std::{io, ops::Range};
 

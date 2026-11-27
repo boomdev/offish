@@ -37,7 +37,11 @@
     <main id="editor-pane" data-focus-zone="editor" tabindex="-1" aria-label="Document editor">
       <div id="editor-tabs" hidden>
         <div id="tabs" aria-label="Open documents"></div>
-        <button id="markdown-preview" type="button" aria-pressed="true" title="Switch between live preview and Markdown source" hidden>Live preview</button>
+        <select id="markdown-mode" aria-label="Markdown editing mode" hidden>
+          <option value="live">Live preview</option>
+          <option value="simple">Simple</option>
+          <option value="source">Source</option>
+        </select>
       </div>
       <div id="editor">Select a file.</div>
     </main>

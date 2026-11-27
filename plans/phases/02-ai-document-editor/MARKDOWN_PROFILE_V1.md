@@ -11,7 +11,18 @@ The syntax baseline is [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/).
 The first preview covers paragraphs, headings, emphasis and strong emphasis,
 links, and ordered and unordered lists with nesting. The profile also includes
 block quotes, code, pipe tables using the [GFM table extension](https://github.github.com/gfm/#tables-extension-),
-and workspace-relative images. Editable table cells are part of P2-03.
+and workspace-relative images.
+
+In Simple mode, supported preview markers stay hidden on the active line.
+The first in-place table editor covers plain-text cells in top-level tables
+with leading and trailing pipes, consistent column counts, and delimiter
+rows of three or more hyphens per cell with optional alignment colons.
+It accepts blank cells and preserves surrounding cell padding. Shift+Enter
+inserts a line break. Rust stores each break as an exact `<br>` tag on
+the same source row, including consecutive breaks. The table previews
+render those tags as line breaks. Use Source for other inline Markdown,
+escapes, and tables whose boundaries the span validator cannot confirm,
+including tables following possible code fences or raw HTML blocks.
 
 A complete leading front matter fence is metadata. After an optional UTF-8
 BOM, the opening line must be exactly three hyphens. The block ends at a
@@ -54,4 +65,7 @@ The batch validates coordinates and byte identity. P2-02 uses Lezer in
 CodeMirror for presentation and edits the underlying source directly.
 When a visual control writes through Markdown structure, it must validate
 the affected spans with the authoritative parser and enforce opaque ranges.
-In-place table-cell edits will exercise that requirement in P2-03.
+For P2-03, Lezer locates candidate tables for display. Rust determines
+whether the candidate fits the supported table grammar, identifies the
+cell's byte range, and checks the same table layout after the splice.
+CodeMirror receives the validated replacement as one undoable edit.

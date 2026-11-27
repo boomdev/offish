@@ -2,6 +2,7 @@
 mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
     use offish::markdown::SourceEdits;
+    use offish::markdown::table_cell::{self, TableCell, TableCellAddress};
     use offish::workspace::search::{SearchIndex, SearchReport, SearchRoot};
     use offish::workspace::{Document, Entry, PreviewImage, Save, TrashEntry, Workspace};
     use offish::workspaces::{ActiveWorkspace, CatalogStore, SavedWorkspace, canonical_roots};
@@ -495,6 +496,28 @@ mod linux {
     }
 
     #[tauri::command]
+    async fn inspect_table_cell(source: String, address: TableCellAddress) -> Response<TableCell> {
+        tauri::async_runtime::spawn_blocking(move || table_cell::inspect(&source, &address))
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    async fn edit_table_cell(
+        source: String,
+        address: TableCellAddress,
+        replacement: String,
+    ) -> Response<TableCell> {
+        tauri::async_runtime::spawn_blocking(move || {
+            table_cell::edit(&source, &address, &replacement)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
     async fn read_preview_image(
         app: AppHandle,
         path: String,
@@ -621,6 +644,8 @@ mod linux {
                 read_document,
                 save_document,
                 save_source_edits,
+                inspect_table_cell,
+                edit_table_cell,
                 read_preview_image,
                 recovery_draft,
                 discard_recovery,
@@ -637,6 +662,16 @@ mod linux {
             ModifierType as Modifiers,
             keys::constants::{ISO_Left_Tab, Tab, w},
         };
+
+        #[test]
+        fn embedded_editor_matches_the_frontend_bundle() {
+            let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+            let editor = context
+                .assets()
+                .get(&"editor.js".into())
+                .expect("the embedded editor must be readable");
+            assert!(editor.as_ref() == include_bytes!("../web/editor.js"));
+        }
 
         #[test]
         fn control_tab_recognizes_both_native_shifted_forms() {

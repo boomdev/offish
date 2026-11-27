@@ -1,4 +1,4 @@
-import { history, historyKeymap, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
+import { history, historyKeymap, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
@@ -33,7 +33,9 @@ const editorPreview = new Compartment();
 const status = message => { $("status").textContent = message; };
 const report = error => status(String(error));
 const dirty = document => document.base.text !== null && document.text !== document.base.text;
-const unsaved = () => [...documents.values()].some(dirty);
+const editedCell = item => item.cellDraft && item.cellDraft.value !== item.cellDraft.original;
+const hasChanges = item => dirty(item) || editedCell(item);
+const unsaved = () => [...documents.values()].some(hasChanges);
 const filename = path => path.split("/").at(-1);
 const shownPath = path => displayPath(path, branches.get("") ?? []);
 
@@ -46,10 +48,10 @@ function button(label, action) {
 
 function renderDetails() {
     $("details").textContent = active ? active.problem ??
-        `${shownPath(active.path)} · ${active.readOnly ? "Read only" : dirty(active) ? "Unsaved" : "Saved"}` :
+        `${shownPath(active.path)} · ${active.readOnly ? "Read only" : hasChanges(active) ? "Unsaved" : "Saved"}` :
         "Select a document.";
     $("recovery").hidden = active?.recovered == null;
-    $("recover").disabled = !active || dirty(active) || active.readOnly || active.text === active.recovered;
+    $("recover").disabled = !active || hasChanges(active) || active.readOnly || active.text === active.recovered;
     $("discard").disabled = Boolean(active?.saving);
     $("conflict").hidden = !active?.conflict;
     $("disk").value = active?.conflict?.text ?? "";
@@ -59,16 +61,16 @@ function renderDetails() {
 
 function renderTabs() {
     $("editor-tabs").hidden = documents.size === 0;
-    $("markdown-preview").hidden = !canPreview(active);
-    $("markdown-preview").setAttribute("aria-pressed", String(usePreview(active)));
+    $("markdown-mode").hidden = !canPreview(active);
+    $("markdown-mode").value = active?.markdownMode ?? "live";
     $("tabs").replaceChildren(...[...documents.values()].map(item => {
         const tab = document.createElement("div");
         tab.className = "tab";
         const title = button(filename(item.path), () => display(item));
         title.className = "tab-title";
-        title.setAttribute("aria-label", filename(item.path) + (dirty(item) ? ", unsaved changes" : ""));
+        title.setAttribute("aria-label", filename(item.path) + (hasChanges(item) ? ", unsaved changes" : ""));
         tab.classList.toggle("active", item === active);
-        tab.classList.toggle("dirty", dirty(item));
+        tab.classList.toggle("dirty", Boolean(hasChanges(item)));
         title.title = shownPath(item.path);
         if (item === active) title.setAttribute("aria-current", "true");
         const close = button("×", () => closeTab(item));
@@ -82,7 +84,8 @@ function renderTabs() {
 function closeTab(item) {
     if (choosing || mutating) return;
     if (item.saving) return status("Wait for the save to finish.");
-    if (dirty(item) && !window.confirm(`Discard unsaved changes to ${filename(item.path)}?`)) return;
+    if (hasChanges(item) && !window.confirm(`Discard unsaved changes to ${filename(item.path)}?`)) return;
+    item.cellDraft = null;
     const tabs = [...documents.values()];
     const index = tabs.indexOf(item);
     const neighbor = tabs[index + 1] ?? tabs[index - 1];
@@ -164,6 +167,7 @@ function setBase(item, base) {
     item.base = base;
     item.text = base.text;
     item.editorState = null;
+    item.cellDraft = null;
     const text = base.text ?? "";
     const unsupported = /\r(?!\n)/.test(text) ||
         (/\r\n/.test(text) && /(?<!\r)\n/.test(text));
@@ -197,20 +201,126 @@ function labelFor(item) {
 }
 
 const canPreview = item => item?.kind === "markdown" && !item.readOnly;
-const usePreview = item => canPreview(item) && !item.sourceOnly;
+const usePreview = item => canPreview(item) && item.markdownMode !== "source";
 
-function previewFor(item) {
-    return usePreview(item) ? markdownPreview(reference => invoke("read_preview_image", {
-        path: item.path, reference,
-    })) : [];
+function finishCell(item, draft) {
+    if (item.cellDraft !== draft) return;
+    item.cellDraft = null;
+    draft.onFinish?.();
+    renderTabs();
+    renderDetails();
 }
 
-$("markdown-preview").onclick = () => {
+async function applyCell(item, draft = item.cellDraft) {
+    if (!draft || item.cellDraft !== draft) return;
+    if (draft.pending) return draft.pending;
+    if (!editedCell(item)) return finishCell(item, draft);
+    const replacement = draft.value;
+    draft.pending = (async () => {
+        const {from, to, text} = await invoke("edit_table_cell", {
+            source: draft.source, address: draft.address, replacement,
+        });
+        if (item.cellDraft !== draft || documents.get(item.path) !== item) return;
+        if (draft.value !== replacement || item.text !== draft.source) {
+            throw new Error("The cell changed during validation. Apply the edit again.");
+        }
+        const focused = active === item && document.activeElement?.matches(".cm-editable-table textarea");
+        const changes = item.editorState.changes({from, to, insert: text});
+        const transaction = {
+            changes,
+            annotations: isolateHistory.of("full"),
+            userEvent: "input.table",
+        };
+        finishCell(item, draft);
+        if (active === item) {
+            editor.dispatch(transaction);
+            if (focused) editor.focus();
+        } else {
+            item.editorState = item.editorState.update(transaction).state;
+            item.text = (draft.source.startsWith("\uFEFF") ? "\uFEFF" : "") + item.editorState.sliceDoc();
+            renderTabs();
+        }
+        return {changes, source: item.text};
+    })();
+    try { return await draft.pending; }
+    finally { draft.pending = null; }
+}
+
+function tableActions(item) {
+    let latestRequest = 0;
+    const current = address => {
+        const draft = item.cellDraft;
+        return draft && Object.keys(address).every(key => address[key] === draft.address[key]) ? draft : null;
+    };
+    return {
+        current, report, save,
+        async begin(address) {
+            const request = ++latestRequest;
+            const view = editor;
+            if (item.cellDraft) {
+                const draft = item.cellDraft;
+                if (current(address) && !draft.pending) return draft;
+                try {
+                    const applied = await applyCell(item, draft);
+                    if (applied) {
+                        if (applied.source !== item.text) return;
+                        address = {
+                            ...address,
+                            table_from: applied.changes.mapPos(address.table_from, -1),
+                            table_to: applied.changes.mapPos(address.table_to, 1),
+                        };
+                    }
+                } catch (error) {
+                    if (request !== latestRequest || editor !== view) return;
+                    draft.focus?.();
+                    throw error;
+                }
+            }
+            const stillOpening = () => request === latestRequest && editor === view &&
+                active === item && !item.cellDraft && item.markdownMode === "simple";
+            if (!stillOpening()) return;
+            const source = item.text;
+            try {
+                const {text} = await invoke("inspect_table_cell", {source, address});
+                if (!stillOpening() || source !== item.text) return;
+                return item.cellDraft = {source, address, original: text, value: text};
+            } catch (error) {
+                if (stillOpening() && source === item.text) throw error;
+            }
+        },
+        change(draft, value) {
+            if (item.cellDraft !== draft) return;
+            const before = hasChanges(item);
+            draft.value = value;
+            if (Boolean(before) !== Boolean(hasChanges(item))) {
+                renderTabs();
+                renderDetails();
+            }
+        },
+        apply: draft => applyCell(item, draft),
+        cancel: draft => finishCell(item, draft),
+    };
+}
+
+function previewFor(item) {
+    const simple = item.markdownMode === "simple";
+    return usePreview(item) ? markdownPreview(reference => invoke("read_preview_image", {
+        path: item.path, reference,
+    }), {simple, actions: simple ? tableActions(item) : undefined}) : [];
+}
+
+$("markdown-mode").onchange = async event => {
     if (!editor || !canPreview(active)) return;
-    active.sourceOnly = !active.sourceOnly;
-    editor.dispatch({effects: editorPreview.reconfigure(previewFor(active))});
-    $("markdown-preview").setAttribute("aria-pressed", String(usePreview(active)));
-    editor.focus();
+    const item = active;
+    const mode = event.target.value;
+    try {
+        await applyCell(item);
+        if (active !== item) return;
+        item.markdownMode = mode;
+        editor.dispatch({effects: editorPreview.reconfigure(previewFor(item))});
+        editor.focus();
+    } catch (error) { report(error); }
+    finally { $("markdown-mode").value = active?.markdownMode ?? "live"; }
 };
 
 function focusEditorView() {
@@ -219,6 +329,7 @@ function focusEditorView() {
 }
 
 function display(item, focusEditor = true) {
+    if (active?.cellDraft) applyCell(active).catch(report);
     editor?.destroy();
     $("editor").replaceChildren();
     active = item;
@@ -242,6 +353,11 @@ function display(item, focusEditor = true) {
                     editorLabel.of(labelFor(item)),
                     editorPreview.of(previewFor(item)),
                     history(), normalizeCrlf, keymap.of([{ key: "Mod-s", run: () => { save().catch(report); return true; } }, ...historyKeymap]),
+                    EditorState.changeFilter.of(() => {
+                        if (!editedCell(item)) return true;
+                        status("Apply or cancel the open cell edit first.");
+                        return false;
+                    }),
                     EditorView.updateListener.of(update => {
                         item.editorState = update.state;
                         if (!update.docChanged) return;
@@ -461,7 +577,9 @@ async function reloadTree() {
 
 async function save(base = active?.base) {
     const item = active;
-    if (choosing || mutating || !item || item.readOnly || item.saving || !dirty(item)) return;
+    if (choosing || mutating || !item || item.readOnly || item.saving) return;
+    await applyCell(item);
+    if (choosing || mutating || active !== item || item.saving || !dirty(item)) return;
     const text = item.text;
     item.saving = true;
     renderDetails();
@@ -493,13 +611,13 @@ async function refresh() {
     if (choosing || mutating) return;
     const epoch = viewEpoch;
     for (const item of documents.values()) {
-        if (item.saving) continue;
+        if (item.saving || item.cellDraft) continue;
         const base = item.base;
         const path = item.path;
         try {
             const disk = await invoke("read_document", {path});
             if (epoch !== viewEpoch || mutating) return;
-            if (item.saving || item.base !== base) continue;
+            if (item.saving || item.cellDraft || item.base !== base) continue;
             if (disk.revision === base.revision) {
                 item.conflict = null;
                 continue;
@@ -1043,7 +1161,7 @@ $("file-menu").onclick = () => menus.open($("file-menu"), [
     {label: "Create Workspace…", run: () => selectWorkspace("create_workspace")},
     {label: "Close Workspace", run: () => selectWorkspace("close_workspace"), disabled: !workspace},
     null,
-    {label: "Save", run: () => save(), disabled: !active || active.readOnly || active.saving || !dirty(active)},
+    {label: "Save", run: () => save(), disabled: !active || active.readOnly || active.saving || !hasChanges(active)},
     {label: "Close tab", run: () => closeTab(active), disabled: !active},
     {label: "Exit", run: requestClose},
 ]);
@@ -1079,7 +1197,7 @@ $("reload").onclick = () => {
     display(active);
 };
 $("recover").onclick = () => {
-    if (!active?.recovered || dirty(active)) return;
+    if (!active?.recovered || hasChanges(active)) return;
     active.text = active.recovered;
     active.editorState = null;
     display(active);

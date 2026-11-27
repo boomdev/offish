@@ -9,9 +9,9 @@ import {sourceEditBatch} from "../source-edits.mjs";
 
 const brief = readFileSync(new URL("../../../plans/research/phase-0/fixtures/pilot/brief.md", import.meta.url), "utf8");
 
-function decorations(state, load = () => {}) {
+function decorations(state, load = () => {}, simple = false) {
     const result = [];
-    inlineDecorations(state, [{from: 0, to: state.doc.length}], load)
+    inlineDecorations(state, [{from: 0, to: state.doc.length}], load, simple)
         .between(0, state.doc.length, (from, to, value) => result.push({from, to, spec: value.spec}));
     return result;
 }
@@ -53,6 +53,138 @@ test("table preview yields to source when the caret enters it", () => {
     const restored = inTable.facet(EditorView.decorations).filter(value => typeof value !== "function");
     assert.equal(restored[0].size, 0);
     assert.equal(inTable.sliceDoc(), brief);
+});
+
+test("Simple mode hides supported markers on the active line and keeps tables rendered", () => {
+    const state = EditorState.create({doc: brief, extensions: markdownPreview(() => {}, {simple: true})});
+    const heading = syntaxTree(state).topNode.getChild("ATXHeading1");
+    const editing = state.update({selection: {anchor: heading.from + 2}}).state;
+    assert.ok(decorations(editing, undefined, true)
+        .some(({from, to, spec}) => from === heading.from && to === heading.from + 1 && "widget" in spec));
+    const table = syntaxTree(state).topNode.getChild("Table");
+    const inTable = state.update({selection: {anchor: table.from + 2}}).state;
+    const ranges = inTable.facet(EditorView.decorations).filter(value => typeof value !== "function");
+    assert.equal(ranges[0].size, 1);
+    assert.equal(inTable.sliceDoc(), brief);
+});
+
+test("a Simple table cell opens as a keyboard-editable input with its exact table address", async t => {
+    function element(tagName) {
+        return {
+            tagName: tagName.toUpperCase(), classList: {add() {}}, children: [], dataset: {}, isConnected: true,
+            append(child) { child.parentElement = this; this.children.push(child); },
+            replaceChildren(child) { this.children = []; this.append(child); },
+            insertRow() { const row = element("tr"); this.append(row); return row; },
+            addEventListener() {},
+            focus() { document.activeElement = this; },
+        };
+    }
+    const original = globalThis.document;
+    globalThis.document = {createElement: element};
+    t.after(() => { globalThis.document = original; });
+    const draft = {value: ""};
+    const actions = {
+        current: () => null,
+        report: assert.fail,
+        begin: t.mock.fn(async address => ({...draft, address})),
+        change: (draft, value) => { draft.value = value; },
+        apply: t.mock.fn(async () => {}),
+        cancel: t.mock.fn(draft => draft.onFinish()),
+    };
+    const doc = brief.replace("| Budget (USD) | 2,500 |", "| Budget (USD) |   |");
+    const state = EditorState.create({doc, extensions: markdownPreview(() => {}, {simple: true, actions})});
+    const table = syntaxTree(state).topNode.getChild("Table");
+    const ranges = state.facet(EditorView.decorations).find(value => typeof value !== "function");
+    const widget = ranges.iter().value.spec.widget;
+    const view = {dom: {querySelector: t.mock.fn()}};
+    const cell = widget.toDOM(view).children[2].children[1];
+    const button = cell.children[0];
+    await button.onclick();
+    assert.deepEqual(actions.begin.mock.calls[0].arguments, [
+        {table_from: table.from, table_to: table.to, row: 2, column: 1},
+    ]);
+    const [input] = cell.children;
+    assert.equal(document.activeElement, input);
+    assert.equal(input.value, "");
+    assert.equal(input.rows, 1);
+    input.onkeydown({key: "Enter", shiftKey: true, preventDefault: assert.fail});
+    assert.equal(actions.apply.mock.callCount(), 0);
+    // The textarea's native input event follows Shift+Enter.
+    input.value = "2,600\n\nconfirmed";
+    input.oninput();
+    assert.equal(input.rows, 3);
+    input.onkeydown({key: "Enter", isComposing: true, preventDefault: assert.fail});
+    assert.equal(actions.apply.mock.callCount(), 0);
+    input.onkeydown({key: "Enter", preventDefault() {}});
+    assert.equal(actions.apply.mock.calls[0].arguments[0].value, "2,600\n\nconfirmed");
+    input.onkeydown({key: "Escape", preventDefault() {}});
+    assert.equal(cell.children[0], button);
+    assert.equal(document.activeElement, button);
+
+    const updated = state.update({changes: {from: doc.indexOf("Pilot seats"), insert: "Current "}}).state;
+    const newTable = syntaxTree(updated).topNode.getChild("Table");
+    const newWidget = updated.facet(EditorView.decorations).find(value => typeof value !== "function")
+        .iter().value.spec.widget;
+    const newCell = newWidget.toDOM(view).children[2].children[1];
+    actions.begin.mock.mockImplementationOnce(async address => {
+        button.isConnected = false;
+        return {...draft, address: {...address, table_to: newTable.to}};
+    });
+    view.dom.querySelector.mock.mockImplementation(() => newCell.children[0]);
+    await button.onclick();
+    assert.deepEqual(view.dom.querySelector.mock.calls[0].arguments, [
+        `[data-table-cell="${newTable.from}:${newTable.to}:2:1"]`,
+    ]);
+    assert.equal(document.activeElement, newCell.children[0]);
+    assert.equal(newCell.children[0].tagName, "TEXTAREA");
+});
+
+test("table previews display consecutive breaks and preserve literal tags in inline code", t => {
+    function element(tagName) {
+        return {
+            tagName, children: [],
+            append(child) { this.children.push(child); },
+            insertRow() { const row = element("tr"); this.append(row); return row; },
+            addEventListener() {},
+        };
+    }
+    const original = globalThis.document;
+    globalThis.document = {createElement: element};
+    t.after(() => { globalThis.document = original; });
+    const doc = "\n| A | B |\n| --- | --- |\n| first<br><br>third | `<br>` |\n";
+    const state = EditorState.create({doc, extensions: markdownPreview(() => {})});
+    const ranges = state.facet(EditorView.decorations).find(value => typeof value !== "function");
+    const [value, code] = ranges.iter().value.spec.widget.toDOM().children[1].children;
+    assert.equal(value.textContent, "first\n\nthird");
+    assert.equal(code.textContent, "`<br>`");
+    assert.equal(state.sliceDoc(), doc);
+});
+
+test("table previews skip the native context menu outside the active cell editor", t => {
+    const original = globalThis.document;
+    globalThis.document = {createElement() {
+        return {
+            handlers: {},
+            append() {},
+            insertRow() { return {append() {}}; },
+            addEventListener(name, handler) { this.handlers[name] = handler; },
+        };
+    }};
+    t.after(() => { globalThis.document = original; });
+    const state = EditorState.create({doc: brief, extensions: markdownPreview(() => {})});
+    const ranges = state.facet(EditorView.decorations).find(value => typeof value !== "function");
+    const view = {posAtDOM: () => 4, dispatch: t.mock.fn(), focus: t.mock.fn()};
+    const table = ranges.iter().value.spec.widget.toDOM(view);
+    const preventDefault = t.mock.fn();
+    table.handlers.mousedown({button: 2, preventDefault});
+    assert.equal(view.dispatch.mock.callCount(), 0);
+    assert.equal(preventDefault.mock.callCount(), 0);
+    table.handlers.contextmenu({target: {closest: () => null}, preventDefault});
+    assert.equal(preventDefault.mock.callCount(), 1);
+    table.handlers.contextmenu({target: {closest: () => ({})}, preventDefault});
+    assert.equal(preventDefault.mock.callCount(), 1);
+    table.handlers.mousedown({button: 0, preventDefault});
+    assert.deepEqual(view.dispatch.mock.calls[0].arguments, [{selection: {anchor: 4}}]);
 });
 
 test("the pilot image creates a scoped loader widget and reveals source on its line", () => {

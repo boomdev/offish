@@ -27,8 +27,13 @@ chooser. **File → Open Folder** starts a single-folder workspace, and
 **File → Open File** opens a document directly.
 
 Editable Markdown opens in **Live preview**. The active line keeps its
-Markdown syntax visible. Use the **Live preview** button to switch to
-source mode. Images resolve inside the document's workspace root.
+Markdown syntax visible. Use the mode selector beside the tabs to choose
+**Simple** or **Source**. Simple keeps supported syntax hidden while editing.
+Click a plain-text cell in a supported table and type a new value. Use
+Shift+Enter for a line break inside the cell. Press Enter or click another
+cell to apply the edit, or press Escape to cancel. Save with Ctrl+S.
+Use Source for cells that contain Markdown formatting. Images resolve
+inside the document's workspace root.
 
 Use **Edit → Find in Workspace** or Ctrl+Shift+F to search saved UTF-8 text
 across all open roots. Select a result to jump to the matching line.

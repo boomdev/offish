@@ -103,7 +103,7 @@ function hide(range, state, node, widget) {
     range.push(Decoration.replace({widget}).range(start, end));
 }
 
-export function inlineDecorations(state, visibleRanges, loadImage) {
+export function inlineDecorations(state, visibleRanges, loadImage, simple = false) {
     const ranges = [];
     const lines = new Set();
     const tree = syntaxTree(state);
@@ -111,7 +111,7 @@ export function inlineDecorations(state, visibleRanges, loadImage) {
         tree.iterate({from, to, enter(node) {
             const line = state.doc.lineAt(node.from);
             const endLine = state.doc.lineAt(node.to);
-            const editing = selected(state, line.from, endLine.to);
+            const editing = !simple && selected(state, line.from, endLine.to);
             const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name);
             const styleLine = name => {
                 const key = line.from + ":" + name;
@@ -169,26 +169,44 @@ export function inlineDecorations(state, visibleRanges, loadImage) {
 }
 
 class PreviewTable extends WidgetType {
-    constructor(rows) {
+    constructor(rows, from, to, actions) {
         super();
         this.rows = rows;
+        this.from = from;
+        this.to = to;
+        this.actions = actions;
     }
 
-    eq(other) { return JSON.stringify(this.rows) === JSON.stringify(other.rows); }
+    eq(other) {
+        return this.actions === other.actions &&
+            (!this.actions || this.from === other.from && this.to === other.to) &&
+            JSON.stringify(this.rows) === JSON.stringify(other.rows);
+    }
 
     toDOM(view) {
         const table = document.createElement("table");
         table.className = "cm-preview-table";
+        if (this.actions) table.classList.add("cm-editable-table");
         for (const [index, cells] of this.rows.entries()) {
             const row = table.insertRow();
-            for (const text of cells) {
+            for (const [column, text] of cells.entries()) {
                 const cell = document.createElement(index === 0 ? "th" : "td");
                 if (index === 0) cell.scope = "col";
-                cell.textContent = text;
+                if (this.actions) {
+                    editableCell(cell, text, {
+                        table_from: this.from, table_to: this.to, row: index, column,
+                    }, this.actions, view);
+                } else {
+                    cell.textContent = text;
+                }
                 row.append(cell);
             }
         }
-        table.addEventListener("mousedown", event => {
+        table.addEventListener("contextmenu", event => {
+            if (!event.target.closest?.("textarea")) event.preventDefault();
+        });
+        if (!this.actions) table.addEventListener("mousedown", event => {
+            if (event.button !== 0) return;
             event.preventDefault();
             const anchor = view.posAtDOM(table);
             view.dispatch({selection: {anchor}});
@@ -197,50 +215,149 @@ class PreviewTable extends WidgetType {
         return table;
     }
 
-    ignoreEvent() { return false; }
+    ignoreEvent() { return Boolean(this.actions); }
 }
 
-function parsedTables(state) {
+const cellKey = ({table_from, table_to, row, column}) => `${table_from}:${table_to}:${row}:${column}`;
+const cellLabel = ({row, column}) => `Row ${row + 1}, column ${column + 1}`;
+
+function showCellInput(cell, button, draft, actions, focus) {
+    const input = document.createElement("textarea");
+    input.dataset.tableCell = button.dataset.tableCell;
+    input.ariaLabel = cellLabel(draft.address);
+    input.title = "Shift+Enter for a line break. Enter to apply. Escape to cancel.";
+    input.value = draft.value;
+    input.cols = 12;
+    const fitRows = () => { input.rows = Math.min(8, input.value.split("\n").length); };
+    fitRows();
+    draft.focus = () => { if (input.isConnected) input.focus(); };
+    draft.onFinish = () => {
+        if (!input.isConnected) return;
+        const focused = document.activeElement === input;
+        cell.replaceChildren(button);
+        if (focused) button.focus();
+    };
+    input.oninput = () => {
+        fitRows();
+        actions.change(draft, input.value);
+    };
+    input.onkeydown = event => {
+        if (event.isComposing) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            actions.cancel(draft);
+        } else if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            actions.apply(draft).catch(actions.report);
+        } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+            event.preventDefault();
+            actions.save().catch(actions.report);
+        }
+    };
+    cell.replaceChildren(input);
+    if (focus) input.focus();
+}
+
+function editableCell(cell, text, address, actions, view) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.tableCell = cellKey(address);
+    button.textContent = text;
+    button.ariaLabel = `${cellLabel(address)}: ${text.replaceAll("\n", " ") || "Empty"}`;
+    button.onclick = async () => {
+        try {
+            const draft = await actions.begin(address);
+            if (!draft) return;
+            // Applying the last edit can replace the table widget and shift its address.
+            const key = cellKey(draft.address);
+            const target = button.isConnected && button.dataset.tableCell === key ? button :
+                view.dom.querySelector(`[data-table-cell="${key}"]`);
+            if (target?.tagName === "BUTTON") showCellInput(target.parentElement, target, draft, actions, true);
+            else if (target) target.focus();
+            else actions.cancel(draft);
+        } catch (error) { actions.report(error); }
+    };
+    const draft = actions.current(address);
+    if (draft) showCellInput(cell, button, draft, actions, false);
+    else cell.append(button);
+}
+
+function displayCell(state, cell) {
+    const lines = [];
+    let from = cell.from;
+    for (const tag of cell.getChildren("HTMLTag")) {
+        if (state.sliceDoc(tag.from, tag.to) !== "<br>") continue;
+        lines.push(state.sliceDoc(from, tag.from));
+        from = tag.to;
+    }
+    lines.push(state.sliceDoc(from, cell.to));
+    lines[0] = lines[0].trimStart();
+    lines[lines.length - 1] = lines.at(-1).trimEnd();
+    return lines.join("\n");
+}
+
+function parsedTables(state, actions) {
     const tables = [];
     syntaxTree(state).iterate({enter(node) {
         if (node.name !== "Table") return !["Paragraph", "FrontMatter", "HTMLBlock", "CommentBlock"].includes(node.name);
         const rows = [];
         for (let row = node.node.firstChild; row; row = row.nextSibling) {
             if (row.name !== "TableHeader" && row.name !== "TableRow") continue;
-            rows.push(row.getChildren("TableCell").map(cell => state.sliceDoc(cell.from, cell.to).trim()));
+            // Lezer omits empty TableCell nodes. The parsed separators retain
+            // their positions and distinguish structural pipes from escapes.
+            const cells = [];
+            const parsed = row.getChildren("TableCell");
+            let nextCell = 0;
+            let from = row.from;
+            const addCell = to => {
+                const node = parsed[nextCell];
+                if (node && node.from >= from && node.to <= to) {
+                    cells.push(displayCell(state, node));
+                    nextCell++;
+                } else {
+                    cells.push(state.sliceDoc(from, to).trim());
+                }
+            };
+            for (const pipe of row.getChildren("TableDelimiter")) {
+                if (pipe.from !== row.from) addCell(pipe.from);
+                from = pipe.to;
+            }
+            if (from < row.to) addCell(row.to);
+            rows.push(cells);
         }
-        tables.push(Decoration.replace({block: true, widget: new PreviewTable(rows)}).range(node.from, node.to));
+        tables.push(Decoration.replace({block: true, widget: new PreviewTable(rows, node.from, node.to, actions)}).range(node.from, node.to));
         return false;
     }});
     return tables;
 }
 
-function tableState(state, tables = parsedTables(state)) {
-    const visible = tables.filter(({from, to}) => !selected(state, from, to));
-    return {tables, decorations: Decoration.set(visible, true)};
+function tablePreview(simple, actions) {
+    function tableState(state, tables = parsedTables(state, actions)) {
+        const visible = simple ? tables : tables.filter(({from, to}) => !selected(state, from, to));
+        return {tables, decorations: Decoration.set(visible, true)};
+    }
+    return StateField.define({
+        create: tableState,
+        update(value, transaction) {
+            const treeChanged = syntaxTree(transaction.startState) !== syntaxTree(transaction.state);
+            if (!transaction.docChanged && !treeChanged) {
+                return !simple && transaction.selection ? tableState(transaction.state, value.tables) : value;
+            }
+            return tableState(transaction.state);
+        },
+        provide: field => EditorView.decorations.from(field, value => value.decorations),
+    });
 }
 
-const previewTables = StateField.define({
-    create: tableState,
-    update(value, transaction) {
-        const treeChanged = syntaxTree(transaction.startState) !== syntaxTree(transaction.state);
-        if (!transaction.docChanged && !treeChanged) {
-            return transaction.selection ? tableState(transaction.state, value.tables) : value;
-        }
-        return tableState(transaction.state);
-    },
-    provide: field => EditorView.decorations.from(field, value => value.decorations),
-});
-
-export function markdownPreview(loadImage) {
+export function markdownPreview(loadImage, {simple = false, actions} = {}) {
     const inline = ViewPlugin.fromClass(class {
-        constructor(view) { this.decorations = inlineDecorations(view.state, view.visibleRanges, loadImage); }
+        constructor(view) { this.decorations = inlineDecorations(view.state, view.visibleRanges, loadImage, simple); }
         update(update) {
             if (update.docChanged || update.selectionSet || update.viewportChanged ||
                 syntaxTree(update.startState) !== syntaxTree(update.state)) {
-                this.decorations = inlineDecorations(update.state, update.view.visibleRanges, loadImage);
+                this.decorations = inlineDecorations(update.state, update.view.visibleRanges, loadImage, simple);
             }
         }
     }, {decorations: plugin => plugin.decorations});
-    return [previewLanguage, inline, previewTables];
+    return [previewLanguage, inline, tablePreview(simple, actions)];
 }

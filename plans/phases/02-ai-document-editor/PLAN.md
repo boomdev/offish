@@ -166,7 +166,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | --- | --- | --- |
 | P2-01 | Complete | Profile v1 is documented. UTF-16 and absolute byte ranges round-trip, and revision-bound edits use the existing workspace save path. |
 | P2-02 | Complete | The maintainer verified live preview, table source reveal, and independent scrolling on Omarchy. Native paint timing remains open under P2-T02. |
-| P2-03 | Planned | Use authoritative structural spans for syntax-hidden editing and table-cell widgets. |
+| P2-03 | Implemented, native check pending | Simple mode edits supported cells in place. Verify that Shift+Enter adds an in-cell break and that Enter applies it without adding a Markdown source row. |
 | P2-04–P2-05 | Planned | Phase 0 proved recovery and partial review in a spike. Integrate the contract with the production editor and safe save path. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
@@ -202,3 +202,38 @@ the available viewport height. The editor and Files tree scroll
 independently and their headers stay in place. The maintainer finished
 the native table-preview and scroll checks. Native paint timing remains
 part of P2-T02.
+
+### P2-03 evidence
+
+Simple keeps supported Markdown markers hidden and edits plain-text cells
+in the [profile v1 table subset](MARKDOWN_PROFILE_V1.md). Rust validates
+the target against the captured source before returning the editor edit.
+Source remains available for the full Markdown document through the same
+mode selector.
+
+The locked development build, 32 Rust tests and six JavaScript suites
+passed. They cover hidden markers on the active line, keyboard interaction
+in table cells, empty cells, rejected structural edits, consecutive line
+breaks, and exact byte preservation with LF, CRLF, BOM and Unicode.
+A mocked desktop bridge also exercised validation, undo, redo,
+revision-bound save and switching to Source on the same edited document.
+The cell navigation regression checks cover leaving untouched cells,
+applying valid edits before opening the next cell, and keeping rejected
+edits available for correction. The widget test checks focus after the
+table is redrawn.
+The table preview suppresses WebKit's context menu on rendered cells.
+The JavaScript test covers a secondary click, primary-click source reveal,
+and the active cell editor's context menu.
+
+A header-only startup was traced to an unreadable editor asset in the
+debug executable. A rebuild restored the asset. The build now watches the
+frontend directory and rejects a missing or empty bundle, and a desktop
+test checks that Tauri can read the exact bundled editor bytes.
+
+For the Omarchy check, open `brief.md` in a disposable pilot copy. In
+Simple mode, click through several cells, then edit the Budget cell and
+use Shift+Enter twice between two lines of text. Click another cell,
+confirm the blank line renders, then undo, redo, and save. In Source mode,
+confirm the cell contains two `<br>` tags and that surrounding pipes and
+spacing remain as before. The automated session could build the app but
+GTK initialization prevented the native launch.
