@@ -68,7 +68,7 @@ from automation timings.
 | P1-T01 | WS-01, ED-01, NFR-01, NFR-04 | On native Wayland, open a local folder and Markdown tab offline. Reject reads outside the authorized folder and explain inaccessible entries. |
 | P1-T02 | WS-02, DOC-01, NFR-03 | A no-op save is byte-identical. A bounded edit changes only the intended bytes on LF, CRLF, BOM and mixed Unicode fixtures. A failed save retains the draft. |
 | P1-T03 | WS-02, NFR-03 | A clean tab reloads, a dirty tab keeps both versions, a stale save is refused, and two Offish writers do not silently overwrite one another. A forced missed watcher event is reconciled by a rescan. |
-| P1-T04 | WS-02, NFR-03, NFR-04 | Process exits around replacement, disk-full and permission failures, symlink and identity changes, and supported mode, owner, ACL and extended-attribute cases preserve or recover the expected data. Validate power-loss behavior on a disposable filesystem or VM and document the proven guarantee. |
+| P1-T04 | WS-02, NFR-03, NFR-04 | Process exits around replacement, disk-full and permission failures, symlink and identity changes, and supported mode, owner, ACL and extended-attribute cases preserve or recover the expected data. See the closeout deferral for the abrupt power-loss test. |
 | P1-T05 | WS-01, WS-02, ED-01 | Explorer mutations and reopened settings preserve intended file identity and contents. Destructive operations have a recoverable path where supported and explain limits otherwise. |
 | P1-T06 | WS-03, NFR-02, NFR-04 | Exclusions and authorization hold after external edits and index rebuild. On the reference hardware, record warm search p95 against 300 ms and cold explorer startup on 10,000 files against 3 s. |
 | P1-T06a | WS-03, ED-01, NFR-04 | Search saved UTF-8 text across available roots. Show root, file, line, scope and scan freshness. Jump to the match without changing an unsaved draft. |
@@ -102,14 +102,14 @@ A runnable Omarchy development build, locked dependencies, automated tests and C
 
 | Task | Status | Evidence or remaining work |
 | --- | --- | --- |
-| P1-01 | Implemented, native check open | Linux desktop build, folder picker, explorer and three panels. Backend tests pass for scoped reads. The maintainer reported the native Omarchy smoke test worked. The detailed P1-T01 checks remain open. |
+| P1-01 | Native offline check passed | The maintainer completed the Omarchy workflow with networking disabled. Backend tests pass for scoped reads and path confinement. |
 | P1-02 | Implemented, native smoke passed | The native keyboard save kept all original bytes plus one insertion. Btrfs tests pass for no-op saves, localized LF and CRLF/BOM edits, mode bits and invalid input. |
 | P1-03 | In progress | Open buffers rescan disk periodically. Backend tests pass for stale writes and competing Offish handles. The maintainer verified native clean reload and both conflict resolution actions. |
-| P1-04 | In progress | Btrfs process-exit tests pass before and after replacement. Saves preserve ownership, group, mode, POSIX access ACLs and user attributes in the tested cases. Injected disk-full and permission errors preserve accepted bytes. Actual filesystem fault and power-loss evidence remain open. |
+| P1-04 | Process-level checks passed | Btrfs process-exit tests pass before and after replacement. Tested ownership, group, mode, POSIX access ACLs and user attributes are preserved. Injected disk-full and permission errors preserve accepted bytes. Abrupt power-loss testing is deferred to Phase 3. |
 | P1-05 | Implemented, native smoke passed | The maintainer verified create and rename (P1-T05a) and confirmed move, duplicate, and recoverable Trash in the native app (P1-T05b–T05c). The maintainer also confirmed that the Omarchy workspace smoke test passed (P1-T05d and workspace naming in P1-T07e). |
 | P1-06 | Complete | Multi-root search, exclusions, revalidation, and index rebuild passed automated checks. Native search result navigation passed. Warm search reached 125.4 ms p95 and explorer startup reached 1824.1 ms p95 on the 10,000-file fixture. |
-| P1-07 | In progress | The native runner verified keyboard navigation, save, and AT-SPI focus through the tested flows. Real IME, screen-reader speech, and direct editor paint latency remain open. |
-| P1-08 | In progress | Rust and npm lockfiles, local build instructions and Linux CI workflow are present. Remote CI, audit, notices, packaging and cross-platform readiness remain open. |
+| P1-07 | In progress | The native runner verified keyboard navigation, save, and AT-SPI focus through the tested flows. The maintainer deferred screen-reader speech to Phase 2 and real IME until a composing input method is available. Direct editor paint latency remains open. |
+| P1-08 | Development archive built | Locked local builds and suites pass. The archive contains the executable, dependency inventory and collected notices. Remote CI, final distribution review, and named Phase 2 platform environments and owners remain open. |
 
 27 November 2026, Omarchy Btrfs. The locked Rust build and six backend tests passed. The pinned npm
 dependencies installed from the local cache and the editor bundle built.
@@ -133,10 +133,9 @@ follow-ups. P1-T07a covers the follow-up checks.
   default ACL left the original file's no-ACL policy intact.
 - Injected ENOSPC before writing and EACCES after journaling left the
   original file intact. The latter retained the durable draft.
-- A process exit leaves the kernel running. Abrupt power loss still needs a
-  disposable VM or equivalent storage test. The session has no QEMU or KVM
-  available. Non-cooperating writers retain the final check-to-rename race
-  documented in ADR-0002.
+- A process exit leaves the kernel running. The Phase 3 power-loss test
+  needs a disposable VM or equivalent storage. Non-cooperating writers
+  retain the final check-to-rename race documented in ADR-0002.
 
 
 ### P1-T05a explorer follow-up
@@ -253,6 +252,13 @@ keyboard request to the AT-SPI result status was 93.5 ms p50 and
 125.4 ms p95, passing the 300 ms target. Offish host peak RSS was
 167776 KiB (about 164 MiB).
 
+The maintainer repeated the native run with networking disabled
+(`--startup-runs 1 --search-runs 2`). P1-T01 passed. The 10,000-file
+explorer became usable in 1797.1 ms. Clean reload, keyboard save and
+navigation, AT-SPI focus, and opening a search result passed. The two warm
+queries measured 113.5 ms p50 and 123.7 ms p95 through the AT-SPI status.
+Offish host peak RSS was 161184 KiB (about 157 MiB).
+
 GTK failed to initialize in the coding sandbox. Hyprland IPC and the user
 D-Bus connection for AT-SPI were also unavailable. For the native run,
 use a terminal in the active Omarchy session with `hyprctl`, `wtype`, and
@@ -271,8 +277,15 @@ external clean reload and keyboard focus via AT-SPI. Host peak RSS excludes
 the WebKit subprocesses. Let its temporary window keep keyboard focus.
 Use `--search-only` to run the search measurements independently of the
 clean-reload and save checks.
-Real IME commit and reload, screen-reader speech, and direct
-keystroke-to-paint timing on the 50,000-word document remain open.
+The maintainer deferred real IME commit and reload because only the Belgian
+keyboard layout is configured on the reference machine. Keep the acceptance
+check for a session with a composing input method.
+
+A CodeMirror model check on a 50,000-word CRLF fixture verified exact Unicode
+insertion and undo. The sandbox still could not reach Hyprland or the user
+D-Bus, so it could not measure native paint. Earlier native AT-SPI focus
+results still apply to the tested keyboard flow. Screen-reader speech moves
+to [Phase 2 native acceptance](../02-ai-document-editor/PLAN.md#8-acceptance-criteria).
 
 ### P1-T07b workspace UX
 
@@ -352,3 +365,32 @@ hovered root and a keyboard-focused subfolder, scroll the tree with Trash
 in view, and rename the workspace
 using the pencil at the right edge of the Files pane while a draft is open.
 Confirm the name survives relaunch and is shown in the saved workspace chooser.
+
+### Phase 1 closeout review
+
+The maintainer approved both transfers below. Phase 2 implementation follows
+Phase 1 closeout.
+
+| Check | Transfer | Evidence and gate |
+| --- | --- | --- |
+| P1-T07 screen-reader speech | Phase 2, Desktop | Check spoken focus, editor and review announcements in the native acceptance matrix. The Omarchy AT-SPI focus observations remain part of Phase 1 evidence. |
+| P1-T04 abrupt power loss | Phase 3, Workspace | Verify durable saves and recovery journals on a disposable VM or storage fixture. Phase 1 evidence covers process exit and injected errors. ADR-0002 still governs when Phase 2 proposal review can be called ready. Moving that readiness gate requires a separate maintainer decision and linked superseding ADR. |
+
+The locked local build and Rust and JavaScript suites passed. The local
+development archive was assembled at
+`target/phase-1-closeout/offish-development-linux-x86_64.tar.gz`.
+The archive contains the release executable, both lockfiles, an inventory
+of the 265 Cargo dependencies in the Linux normal dependency graph, seven
+npm packages that contribute to the editor bundle, collected license
+texts and notices, and five MPL source snapshots. The executable in the
+archive matches the release build and resolves its system libraries on
+the development machine. Final public distribution review remains open.
+
+Phase 1 remains open for direct WebKitGTK keystroke-to-paint timing
+(P1-T07) and final review of the external-change evidence (P1-T03).
+The current build uses periodic rescans
+and has native clean-reload evidence. The plan still calls for a
+notification-loss test. P1-T08 needs a verified remote workflow result,
+final notice review, and the named macOS and Windows environments and
+owners for the Phase 2 handoff. The local session could not verify the
+main-branch GitHub Actions run.
