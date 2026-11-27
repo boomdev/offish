@@ -165,7 +165,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | Tasks | Status | Evidence or next check |
 | --- | --- | --- |
 | P2-01 | Complete | Profile v1 is documented. UTF-16 and absolute byte ranges round-trip, and revision-bound edits use the existing workspace save path. |
-| P2-02 | Implemented, native preview smoke passed | The maintainer confirmed the preview works on Omarchy. The scroll isolation follow-up still needs a native check. |
+| P2-02 | Complete | The maintainer verified live preview, table source reveal, and independent scrolling on Omarchy. Native paint timing remains open under P2-T02. |
 | P2-03 | Planned | Use authoritative structural spans for syntax-hidden editing and table-cell widgets. |
 | P2-04–P2-05 | Planned | Phase 0 proved recovery and partial review in a spike. Integrate the contract with the production editor and safe save path. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
@@ -199,6 +199,6 @@ revision-bound batch with BOM and CRLF preserved. The maintainer confirmed
 the native preview worked on Omarchy and reported that long documents
 could scroll the entire window. The workspace row is now constrained to
 the available viewport height. The editor and Files tree scroll
-independently and their headers stay in place. The layout follow-up
-still needs native verification. Native paint timing remains part of
-P2-T02.
+independently and their headers stay in place. The maintainer finished
+the native table-preview and scroll checks. Native paint timing remains
+part of P2-T02.

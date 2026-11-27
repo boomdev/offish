@@ -170,7 +170,10 @@ textarea { display: block; width: 100%; margin: .4rem 0; font: inherit; }
 #details-divider::after { left: 0; }
 .pane-divider:hover, .pane-divider:active { background: var(--accent); }
 .pane-divider:focus-visible { outline-offset: 0; }
-#editor .cm-content { caret-color: var(--accent); }
+#editor .cm-content {
+  caret-color: var(--accent);
+  padding-inline: .75rem;
+}
 #editor .cm-cursor, #editor .cm-dropCursor { border-left-color: var(--accent); }
 
 .entry-buttons { display: flex; flex-wrap: wrap; gap: .35rem; }
