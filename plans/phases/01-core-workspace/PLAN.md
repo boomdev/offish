@@ -244,7 +244,8 @@ key repeat and focus in the Files pane.
 The GTK window handles Ctrl+Tab and Ctrl+Shift+Tab before focus traversal.
 Rust tests verified the forward and shifted key mappings. A mocked-bridge
 frontend check sent 30 consecutive requests and verified wraparound and
-editor focus. Rapid key delivery still needs a native Omarchy check.
+editor focus. The maintainer confirmed both shortcuts worked on Omarchy
+after retesting the rapid-switching and reverse-cycling fix.
 
 ### P1-T07e folder actions and workspace naming
 
