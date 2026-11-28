@@ -78,7 +78,7 @@ def check(binary, scratch, fixture):
 
         select_passage(PASSAGE)
         enter_prompt(DENY_PROMPT)
-        activate("Review context")
+        activate("Send message")
         dialog = node("Approve conversation context", "dialog")
         assert with_text(dialog, PASSAGE)
         activate("Cancel")
@@ -94,7 +94,7 @@ def check(binary, scratch, fixture):
         activate("Browse references")
         activate("Mention this folder")
         enter_prompt(PROMPT)
-        activate("Review context")
+        activate("Send message")
         dialog = node("Approve conversation context", "dialog")
         assert with_text(dialog, "The pilot date moves to 14 December.")
         assert with_text(dialog, "Included folder reference.")
@@ -112,7 +112,7 @@ def check(binary, scratch, fixture):
 
         select_passage(REVISED)
         enter_prompt(CANCEL_PROMPT)
-        activate("Review context")
+        activate("Send message")
         activate("Approve and send")
         wait_for("cancel turn focus", lambda: focused(app, "Cancel turn"), process)
         activate("Cancel turn")

@@ -52,20 +52,29 @@
           <h2 id="conversation-heading">Conversation</h2>
           <button id="conversation-clear" type="button" hidden>Clear history</button>
         </div>
-        <ol id="conversation-history" aria-label="Conversation history" tabindex="0" hidden></ol>
-        <button id="conversation-review" type="button" hidden>Review proposed edit</button>
+        <label for="conversation-provider">Provider</label>
+        <select id="conversation-provider">
+          <option value="offline">Offline test provider</option>
+          <option value="codex">Codex (Linux pilot)</option>
+        </select>
         <form id="conversation-form">
-          <label for="conversation-prompt">Message to offline test provider</label>
+          <label id="conversation-prompt-label" for="conversation-prompt">Message to offline test provider</label>
           <textarea id="conversation-prompt" rows="3" maxlength="2048" required
             placeholder="Select text in the document, then ask for a revision."></textarea>
           <ul id="conversation-mentions" aria-label="Mentioned references" hidden></ul>
           <div class="entry-buttons">
+            <button id="conversation-send" type="submit">Send message</button>
             <button id="conversation-mention" type="button">@ Add reference</button>
-            <button id="conversation-send" type="submit">Review context</button>
             <button id="conversation-cancel" type="button" hidden>Cancel turn</button>
           </div>
         </form>
         <p id="conversation-status" role="status"></p>
+        <button id="conversation-review" type="button" hidden>Review proposed edit</button>
+        <div id="conversation-account" class="entry-buttons" hidden>
+          <button id="conversation-connect" type="button" data-oai-siwc-button>Continue with ChatGPT</button>
+          <button id="conversation-disconnect" type="button" hidden>Disconnect ChatGPT</button>
+        </div>
+        <ol id="conversation-history" aria-label="Conversation history" tabindex="0" hidden></ol>
       </section>
       <h2>Details</h2>
       <p id="details">Select a document.</p>
@@ -115,7 +124,7 @@
   </dialog>
   <dialog id="context-dialog" aria-labelledby="context-heading" aria-describedby="context-intro">
     <h2 id="context-heading">Approve conversation context</h2>
-    <p id="context-intro">The offline test provider receives the message and exact text shown here.</p>
+    <p id="context-intro"></p>
     <div id="context-items" tabindex="0" aria-label="Text to share"></div>
     <p id="context-limit" hidden>Some folder entries were skipped. Only the text listed here is included.</p>
     <div class="entry-buttons">

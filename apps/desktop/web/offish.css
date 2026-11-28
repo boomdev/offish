@@ -153,9 +153,13 @@ h2 { font-size: .9rem; }
 #review-history label, #review-recovery label:not([hidden]) { display: block; margin-top: .6rem; }
 #review-preimage { width: 100%; }
 #conversation { padding-block-end: .55rem; border-bottom: 1px solid var(--line); }
+#conversation-provider { max-width: 100%; margin-block: .25rem .5rem; }
+#conversation-account { margin-block: 0 .55rem; }
+#conversation-account[hidden] { display: none; }
 .conversation-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .45rem; }
 .conversation-heading h2 { margin-inline-end: auto; }
 #conversation-form textarea { width: 100%; display: block; margin-block: .35rem; font: inherit; resize: vertical; }
+#conversation-send:not(:disabled) { border-color: var(--accent); color: var(--accent); font-weight: 650; }
 #conversation-history, #conversation-mentions, #mention-entries { list-style: none; padding: 0; }
 #conversation-history { max-height: 12rem; overflow: auto; font-size: .88rem; }
 #conversation-history li { padding: .45rem; margin-block: .4rem; border: 1px solid var(--line); border-radius: .3rem; }

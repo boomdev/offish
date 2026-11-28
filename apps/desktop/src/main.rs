@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
+    use offish::agent::codex::auth::AccountStore;
     use offish::agent::{Conversation, Prepared, Request, Update};
     use offish::markdown::SourceEdits;
     use offish::markdown::table_cell::{self, TableCell, TableCellAddress};
@@ -24,6 +25,7 @@ mod linux {
         recovery: PathBuf,
         chat: PathBuf,
         conversation: Conversation,
+        accounts: AccountStore,
         active: Option<ActiveWorkspace>,
         warning: Option<String>,
         search: Arc<Mutex<SearchIndex>>,
@@ -100,9 +102,49 @@ mod linux {
 
     #[tauri::command]
     fn approve_agent_turn(state: State<'_, Current>, id: String) -> Response<Message> {
+        let accounts = state
+            .lock()
+            .map_err(|_| "Conversation state is unavailable.")?
+            .accounts
+            .clone();
         with_conversation(state, |conversation, workspace, private, history| {
-            conversation.approve(&id, workspace, private, history)
+            conversation.approve_with_account(&id, workspace, private, history, Some(&accounts))
         })
+    }
+
+    async fn account_operation<T: Send + 'static>(
+        state: State<'_, Current>,
+        run: impl FnOnce(&AccountStore) -> io::Result<T> + Send + 'static,
+    ) -> Response<T> {
+        let accounts = state
+            .lock()
+            .map_err(|_| "ChatGPT account state is unavailable.")?
+            .accounts
+            .clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            run(&accounts).map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|_| "The ChatGPT account operation failed.")?
+    }
+
+    #[tauri::command]
+    async fn chatgpt_connected(state: State<'_, Current>) -> Response<bool> {
+        account_operation(state, AccountStore::connected).await
+    }
+
+    #[tauri::command]
+    async fn connect_chatgpt(state: State<'_, Current>) -> Response<()> {
+        account_operation(state, |accounts| {
+            offish::agent::codex::check_runtime()?;
+            accounts.connect()
+        })
+        .await
+    }
+
+    #[tauri::command]
+    async fn disconnect_chatgpt(state: State<'_, Current>) -> Response<()> {
+        account_operation(state, AccountStore::disconnect).await
     }
 
     #[tauri::command]
@@ -731,6 +773,7 @@ mod linux {
                     recovery: data.join("recovery"),
                     chat: data.join("chat"),
                     conversation: Conversation::default(),
+                    accounts: AccountStore::new(data.join("siwc")),
                     active: None,
                     warning: None,
                     search: Arc::default(),
@@ -779,6 +822,9 @@ mod linux {
                 approve_agent_turn,
                 poll_agent_turn,
                 cancel_agent_turn,
+                chatgpt_connected,
+                connect_chatgpt,
+                disconnect_chatgpt,
                 list_directory,
                 search_workspace,
                 create_entry,

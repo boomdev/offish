@@ -1,6 +1,6 @@
 # Phase 2 — AI-native document editor
 
-**Status** In progress · Offline conversation pilot verified\
+**Status** In progress · Linux Codex pilot implemented\
 **Owner** Project maintainer  
 **Master requirements** DOC-01, ED-01, WS-02, WS-03, AI-01, AI-02, CHG-01, NFR-01–06  
 [Master plan](../../MASTER_PLAN.md) · [Phase 1 evidence](../01-core-workspace/PLAN.md) · [Phase 0 fixtures and research](../../research/phase-0/README.md)
@@ -170,7 +170,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-04 | In progress | The Linux backend passes acceptance, restore and checkpoint relocation fixtures. Native durability and cross-platform verification remain open. |
 | P2-05 | Complete on Omarchy | The deterministic pilot passes native inline review, partial acceptance, rejection, restore, and stale-revision checks. Release verification remains open under P2-04 and P2-08. |
 | P2-06 | Complete on Omarchy | Exact-text approval, file and folder mentions, streaming, inline review, cancellation, and local history passed P2-T04 with the fixture provider. |
-| P2-07 | Planned | Implement shipping sign-in and verify platform sandbox containment. |
+| P2-07 | In progress | The Linux adapter and isolated startup are implemented. The maintainer confirmed ChatGPT authorization on retry. A live model turn still needs evidence. macOS and Windows require desktop ports and native containment checks. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
 
 ### P2-01 evidence
@@ -352,7 +352,7 @@ gates.
 
 In a saved copy of `brief.md`, select the schedule sentence and use
 **@ Add reference** to mention `assumptions.md`. Ask for a revision and
-choose **Review context**. The approval dialog shows the message,
+choose **Send message**. The approval dialog shows the message,
 selection and exact text included from each reference. **Review proposed
 edit** opens the staged change in P2-05 inline review.
 
@@ -383,3 +383,49 @@ history. Run `python -B plans/phases/02-ai-document-editor/run-omarchy-conversat
 after building the development binary.
 
 The maintainer tested the P2-06 conversation workflow and confirmed it worked.
+
+### P2-07 Codex adapter and sign-in
+
+1. Under AI-01, AI-02 and NFR-04, implement the documented public OAuth
+   client with browser authorization, a loopback callback, PKCE and
+   verified account identity. Store credentials in the Linux Secret
+   Service. Keep the offline provider available.
+2. Under AI-02, CHG-01 and NFR-04, send an approved snapshot through a
+   pinned, isolated Codex app-server. Route its candidate replacement
+   through the existing revision-bound review. Exercise protocol errors,
+   process cleanup, cancellation and absence of diagnostic secrets.
+3. For P2-T04 and P2-T05, confirm the live sign-in and containment on
+   Omarchy and keep the macOS and Windows gates open until their
+   desktop implementations and test environments are available.
+
+The pilot requires the static Codex CLI 0.172.0 executable, bubblewrap,
+curl, the Linux Secret Service and `xdg-open`. Use `OFFISH_CODEX_BINARY`
+to point Offish at the real executable when it is installed behind a
+launcher shim. The provider selector defaults to the offline provider.
+To exercise Codex, select **Codex (Linux pilot)**, choose **Continue with
+ChatGPT**, and finish authorization in the browser. In a disposable
+workspace, approve a selection and reference, then review the proposed
+replacement before accepting. [ADR-0008](../../decisions/ADR-0008-linux-codex-pilot.md)
+records the containment design and dependencies.
+
+On 28 November 2026, the native protocol probe initialized Codex CLI
+0.172.0 and started an ephemeral thread with networking disabled. The
+filesystem canary probe could write to its temporary sandbox state and
+could not read or write the host canary or write beside the mounted
+binary. The OAuth and protocol fixtures passed PKCE, callback-state and
+issued-client checks, signature and claim validation, scope checks,
+refresh rotation, late-frame rejection and unsolicited-tool rejection.
+The frontend tests verified external disclosure before Codex approval.
+The existing Omarchy conversation acceptance runner passed with the
+offline provider.
+
+To repeat the native protocol and filesystem probes on Omarchy, set
+`OFFISH_CODEX_BINARY` for
+`cargo test --locked --offline --no-default-features agent::codex::tests -- --ignored`.
+Live ChatGPT entitlement, an approved live turn and cancellation,
+release network containment, and the macOS and Windows paths remain open.
+
+The maintainer completed browser authorization on a second attempt after
+the first browser redirect reported a refused loopback connection. Follow-up
+for AI-01 and P2-T04 makes the message action visible alongside the composer
+and retains explicit context approval before sending.

@@ -8,7 +8,7 @@ The [master plan](MASTER_PLAN.md) defines the product, requirements, architectur
 | [decisions/](decisions/) | Proposed, accepted, and superseded architecture decisions |
 | [Phase 0](phases/00-research-and-architecture/PLAN.md) | Research and architecture · closed |
 | [Phase 1](phases/01-core-workspace/PLAN.md) | Core workspace · closed |
-| [Phase 2](phases/02-ai-document-editor/PLAN.md) | AI-native document editor · offline conversation pilot verified |
+| [Phase 2](phases/02-ai-document-editor/PLAN.md) | AI-native document editor · Linux Codex pilot implemented |
 | [Phase 3](phases/03-versioning-and-interoperability/) | Versioning and interoperability |
 | [Phase 4](phases/04-spreadsheets/) | AI-native spreadsheets |
 | [Phase 5](phases/05-presentations/) | AI-native presentations |

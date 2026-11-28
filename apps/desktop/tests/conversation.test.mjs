@@ -99,3 +99,35 @@ test("a proposal arriving after cancellation cannot enter inline review", async 
     assert.equal($("conversation-review").hidden, true);
     assert.equal($("conversation-status").textContent, "Turn cancelled.");
 });
+
+test("Codex approval discloses the external destination and approves the prepared ID only", async t => {
+    const $ = fixtureDOM(t);
+    t.mock.timers.enable({apis: ["setTimeout"]});
+    const invoke = t.mock.fn(async (command, args) => {
+        switch (command) {
+            case "conversation_history": return [];
+            case "chatgpt_connected": return true;
+            case "prepare_agent_turn":
+                assert.equal(args.request.provider, "codex");
+                return {
+                    id: "codex-turn", provider: "codex", prompt: "Revise.",
+                    selection: {path: "root-0/brief.md", text: "Approved excerpt."}, files: [],
+                };
+            case "approve_agent_turn":
+                assert.deepEqual(args, {id: "codex-turn"});
+                return {id: "codex-turn", provider: "codex", prompt: "Revise.", answer: "",
+                    references: 0, outcome: "interrupted"};
+            default: assert.fail(command);
+        }
+    });
+    await setupConversation({...setting, invoke})(true);
+    $("conversation-provider").value = "codex";
+    await $("conversation-provider").onchange();
+    $("conversation-prompt").value = "Revise.";
+    await $("conversation-form").onsubmit({preventDefault() {}});
+    assert.match($("context-intro").textContent, /to OpenAI using your ChatGPT plan/);
+    assert.equal($("conversation-provider").disabled, true);
+    assert.ok(!invoke.mock.calls.some(call => call.arguments[0] === "approve_agent_turn"));
+    await $("context-approve").onclick();
+    assert.equal(invoke.mock.calls.at(-1).arguments[0], "approve_agent_turn");
+});

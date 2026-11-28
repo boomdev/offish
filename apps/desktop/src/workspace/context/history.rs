@@ -12,7 +12,15 @@ use std::{
 };
 
 const HISTORY_LIMIT: usize = 20;
-const HISTORY_BYTES: u64 = 256 * 1024;
+const HISTORY_BYTES: u64 = 1024 * 1024;
+
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    #[default]
+    Offline,
+    Codex,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,10 +29,13 @@ pub enum Outcome {
     Cancelled,
     Complete,
     Stale,
+    Failed,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Message {
+    #[serde(default)]
+    pub provider: Provider,
     pub id: String,
     pub prompt: String,
     pub answer: String,

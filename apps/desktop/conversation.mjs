@@ -4,9 +4,11 @@ const $ = id => document.getElementById(id);
 const MAX_MENTIONS = 6;
 const HISTORY_LIMIT = 20;
 const POLL_DELAY = 400;
+const providerName = value => value === "codex" ? "Codex" : "Offline test provider";
 
 export function setupConversation({invoke, getSelection, labelForPath, reviewProposal}) {
     const prompt = $("conversation-prompt");
+    const provider = $("conversation-provider");
     const context = $("context-dialog");
     const picker = $("mention-dialog");
     const confirmDelete = $("conversation-delete");
@@ -20,14 +22,24 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
     let directory = "";
     let listing = 0;
     let deleteGeneration = -1;
+    let accountBusy = false;
+    let connected = false;
     const status = message => {
         $("conversation-status").textContent = message;
     };
 
     function render() {
         const locked = busy || Boolean(pending || running);
+        const codex = provider.value === "codex";
         prompt.readOnly = locked;
-        $("conversation-send").disabled = locked;
+        provider.disabled = locked || accountBusy;
+        $("conversation-send").disabled = locked || (codex && (!connected || accountBusy));
+        $("conversation-account").hidden = !codex;
+        $("conversation-connect").disabled = locked || accountBusy;
+        $("conversation-connect").textContent = connected ? "Reconnect ChatGPT" : "Continue with ChatGPT";
+        $("conversation-disconnect").hidden = !connected;
+        $("conversation-disconnect").disabled = locked || accountBusy;
+        $("conversation-prompt-label").textContent = codex ? "Message to Codex" : "Message to offline test provider";
         $("conversation-mention").disabled = locked || mentions.length === MAX_MENTIONS;
         $("conversation-clear").hidden = history.length === 0;
         $("conversation-clear").disabled = locked;
@@ -73,7 +85,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
             const text = document.createElement("p");
             text.textContent = `You: ${message.prompt}`;
             const reply = document.createElement("p");
-            reply.textContent = message.answer ? `Offline test provider: ${message.answer}` : "";
+            reply.textContent = message.answer ? `${providerName(message.provider)}: ${message.answer}` : "";
             reply.hidden = !message.answer;
             const summary = document.createElement("small");
             const outcome = running?.id === message.id ? "Streaming" : {
@@ -81,6 +93,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
                 cancelled: "Cancelled",
                 complete: "Complete",
                 stale: "Proposal unavailable",
+                failed: "Failed",
             }[message.outcome];
             summary.textContent = `${outcome} · ${message.references} approved ${message.references === 1 ? "reference" : "references"}`;
             entry.append(text, reply, summary);
@@ -152,9 +165,47 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         container.append(label, excerpt);
     }
 
+    provider.onchange = async () => {
+        status("");
+        render();
+        if (provider.value !== "codex") return;
+        accountBusy = true;
+        render();
+        try {
+            connected = await invoke("chatgpt_connected");
+        } catch (error) {
+            connected = false;
+            status(String(error));
+        } finally {
+            accountBusy = false;
+            render();
+        }
+    };
+
+    async function manageAccount(connect) {
+        if (busy || pending || running || accountBusy) return;
+        accountBusy = true;
+        if (connect) status("Finish signing in to ChatGPT in your browser.");
+        render();
+        try {
+            await invoke(connect ? "connect_chatgpt" : "disconnect_chatgpt");
+            connected = connect;
+            status(connect ? "ChatGPT connected. Select text in a saved Markdown file, then send a message." : "ChatGPT disconnected.");
+        } catch (error) {
+            status(String(error));
+        } finally {
+            accountBusy = false;
+            render();
+        }
+    }
+
+    $("conversation-connect").onclick = () => manageAccount(true);
+    $("conversation-disconnect").onclick = () => manageAccount(false);
+
     $("conversation-form").onsubmit = async event => {
         event.preventDefault();
         if (busy || pending || running) return;
+        if (provider.value === "codex" && (!connected || accountBusy)) return;
         const selection = getSelection();
         if (!selection) {
             status("Select text in a saved Markdown document before preparing context.");
@@ -166,10 +217,13 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         render();
         try {
             const prepared = await invoke("prepare_agent_turn", {request: {
-                prompt: prompt.value, selection, mentions,
+                prompt: prompt.value, selection, mentions, provider: provider.value,
             }});
             if (current !== generation) return;
             pending = prepared.id;
+            $("context-intro").textContent = prepared.provider === "codex" ?
+                "This turn sends your message and the exact text shown here to OpenAI using your ChatGPT plan." :
+                "The offline test provider receives the message and exact text shown here.";
             const items = $("context-items");
             items.replaceChildren();
             appendExcerpt(items, "Message", prepared.prompt);
@@ -220,6 +274,10 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
             try {
                 const update = await invoke("poll_agent_turn", {id: message.id});
                 if (running !== message) return;
+                if (update.type === "waiting") {
+                    schedulePoll(message);
+                    return;
+                }
                 if (update.type === "delta") {
                     message.answer += update.text;
                     renderHistory();
@@ -232,6 +290,9 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
                     history[history.indexOf(message)] = update.message;
                     staged = update.staged;
                     status(staged ? "Proposal ready for review." : "The edit could not be staged. Select the current text and try again.");
+                } else if (update.type === "failed") {
+                    history[history.indexOf(message)] = update.message;
+                    status(update.error);
                 } else {
                     status("The turn was interrupted.");
                 }
@@ -264,7 +325,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
             history = [...history, message].slice(-HISTORY_LIMIT);
             prompt.value = "";
             mentions = [];
-            status("Streaming from the offline test provider…");
+            status(`Waiting for ${providerName(message.provider)}…`);
             renderMentions();
             renderHistory();
             schedulePoll(message);
@@ -363,6 +424,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         mentions = [];
         pending = running = staged = null;
         busy = Boolean(enabled);
+        provider.value = "offline";
         prompt.value = "";
         for (const dialog of [picker, context, confirmDelete]) {
             if (dialog.open) dialog.close();

@@ -5,7 +5,7 @@ use crate::{
     workspace::{
         context::{
             ContextReader, Snippet,
-            history::{HistoryStore, Message, Outcome},
+            history::{HistoryStore, Message, Outcome, Provider},
         },
         review::{Hunk, Proposal},
     },
@@ -19,6 +19,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+pub mod codex;
 #[cfg(test)]
 mod tests;
 
@@ -30,6 +31,8 @@ static TURN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
+    #[serde(default)]
+    provider: Provider,
     prompt: String,
     selection: Selection,
     mentions: Vec<Mention>,
@@ -53,6 +56,7 @@ struct Mention {
 
 #[derive(Clone, Serialize)]
 pub struct Prepared {
+    provider: Provider,
     id: String,
     prompt: String,
     selection: Captured,
@@ -67,6 +71,8 @@ struct Captured {
     from: usize,
     to: usize,
     text: String,
+    #[serde(skip)]
+    crlf: bool,
 }
 
 struct ProviderContext<'a> {
@@ -80,8 +86,10 @@ trait Adapter {
 }
 
 enum Event {
+    Pending,
     Text(String),
     Candidate(SourceEdit),
+    Failed(String),
 }
 
 struct Fixture;
@@ -143,12 +151,17 @@ pub struct Staged {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Update {
+    Waiting,
     Delta {
         text: String,
     },
     Done {
         message: Message,
         staged: Option<Staged>,
+    },
+    Failed {
+        message: Message,
+        error: String,
     },
     Revoked,
 }
@@ -211,6 +224,7 @@ impl Conversation {
             from: range.start,
             to: range.end,
             text: source[range].into(),
+            crlf: source.contains("\r\n"),
         };
         // Capture explicit files before allocating the remaining budget to folders.
         for mention in request
@@ -228,6 +242,7 @@ impl Conversation {
             .as_nanos();
         let serial = TURN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let prepared = Prepared {
+            provider: request.provider,
             id: format!("{}-{time}-{serial}", std::process::id()),
             prompt: prompt.into(),
             selection,
@@ -245,7 +260,34 @@ impl Conversation {
         private: &[PathBuf],
         history: &HistoryStore,
     ) -> io::Result<Message> {
-        self.approve_with(id, workspace, private, history, &Fixture)
+        self.approve_with_account(id, workspace, private, history, None)
+    }
+
+    pub fn approve_with_account(
+        &mut self,
+        id: &str,
+        workspace: &ActiveWorkspace,
+        private: &[PathBuf],
+        history: &HistoryStore,
+        accounts: Option<&codex::auth::AccountStore>,
+    ) -> io::Result<Message> {
+        let Phase::AwaitingApproval(prepared) = &self.0 else {
+            return Err(io::Error::other("The context approval has expired."));
+        };
+        match prepared.provider {
+            Provider::Offline => self.approve_with(id, workspace, private, history, &Fixture),
+            Provider::Codex => {
+                let store =
+                    accounts.ok_or_else(|| io::Error::other("ChatGPT sign-in is unavailable."))?;
+                self.approve_with(
+                    id,
+                    workspace,
+                    private,
+                    history,
+                    &codex::Codex(store.clone()),
+                )
+            }
+        }
     }
 
     fn approve_with(
@@ -264,6 +306,7 @@ impl Conversation {
         };
         prepared.selection.current_source(workspace, private)?;
         let message = Message {
+            provider: prepared.provider,
             id: prepared.id,
             prompt: prepared.prompt,
             answer: String::new(),
@@ -298,6 +341,20 @@ impl Conversation {
             return Ok(Update::Revoked);
         }
         let event = turn.stream.next();
+        if matches!(event, Some(Event::Pending)) {
+            return Ok(Update::Waiting);
+        }
+        if let Some(Event::Failed(error)) = event {
+            let Phase::Streaming(mut turn) = std::mem::take(&mut self.0) else {
+                unreachable!()
+            };
+            turn.message.outcome = Outcome::Failed;
+            history.finish(&turn.message)?;
+            return Ok(Update::Failed {
+                message: turn.message,
+                error,
+            });
+        }
         if let Some(Event::Text(text)) = event {
             if turn.message.answer.len().saturating_add(text.len()) <= 4096 {
                 turn.message.answer.push_str(&text);

@@ -74,6 +74,7 @@ impl Project {
             .editor_range(offset..offset + PASSAGE.len())
             .unwrap();
         Request {
+            provider: Provider::Offline,
             prompt: PROMPT.into(),
             selection: Selection {
                 path: "root-0/brief.md".into(),
