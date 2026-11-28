@@ -1,3 +1,4 @@
+pub mod context;
 pub mod review;
 pub mod search;
 mod trash;
@@ -848,12 +849,16 @@ fn is_markdown(path: &Path) -> bool {
 
 fn snapshot(path: &Path) -> io::Result<(Metadata, Vec<u8>)> {
     let file = open(path, false)?;
+    snapshot_file(&file)
+}
+
+fn snapshot_file(file: &File) -> io::Result<(Metadata, Vec<u8>)> {
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(invalid("Choose an ordinary file."));
     }
     let mut bytes = Vec::new();
-    (&file).take(LIMIT + 1).read_to_end(&mut bytes)?;
+    file.take(LIMIT + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > LIMIT {
         return Err(invalid("File exceeds the 16 MiB editor limit."));
     }

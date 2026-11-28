@@ -152,6 +152,22 @@ h2 { font-size: .9rem; }
 #review button, #review select { max-width: 100%; margin-block: .2rem; }
 #review-history label, #review-recovery label:not([hidden]) { display: block; margin-top: .6rem; }
 #review-preimage { width: 100%; }
+#conversation { padding-block-end: .55rem; border-bottom: 1px solid var(--line); }
+.conversation-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .45rem; }
+.conversation-heading h2 { margin-inline-end: auto; }
+#conversation-form textarea { width: 100%; display: block; margin-block: .35rem; font: inherit; resize: vertical; }
+#conversation-history, #conversation-mentions, #mention-entries { list-style: none; padding: 0; }
+#conversation-history { max-height: 12rem; overflow: auto; font-size: .88rem; }
+#conversation-history li { padding: .45rem; margin-block: .4rem; border: 1px solid var(--line); border-radius: .3rem; }
+#conversation-history p { white-space: pre-wrap; margin-block: .25rem; }
+#conversation-history small, #conversation-status { color: var(--muted); }
+#conversation-status:empty { display: none; }
+#conversation-mentions li { display: flex; justify-content: space-between; align-items: baseline; gap: .4rem; margin-block: .25rem; }
+#conversation-review { margin-block: 0 .5rem; }
+#context-dialog, #mention-dialog { width: min(40rem, calc(100vw - 3rem)); }
+#context-items, #mention-entries { overflow: auto; max-height: min(22rem, 45vh); }
+#context-items pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--rail); padding: .65rem; }
+#mention-entries button { display: block; width: 100%; margin-block: .25rem; text-align: start; }
 .cm-preview-heading { font-weight: 750; line-height: 1.4; }
 .cm-preview-heading-1 { font-size: 1.65em; }
 .cm-preview-heading-2 { font-size: 1.35em; }

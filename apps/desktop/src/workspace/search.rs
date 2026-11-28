@@ -1,4 +1,4 @@
-mod rules;
+pub(super) mod rules;
 
 use super::{Workspace, descriptor, identity, is_markdown, open};
 use regex::{Regex, RegexBuilder};
@@ -163,7 +163,7 @@ impl SearchIndex {
     }
 }
 
-fn resolved_location(path: &Path) -> Option<PathBuf> {
+pub(super) fn resolved_location(path: &Path) -> Option<PathBuf> {
     // Exclude app storage even if it is created after the scan starts.
     path.ancestors().find_map(|ancestor| {
         let canonical = ancestor.canonicalize().ok()?;

@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+pub mod agent;
 pub mod markdown;
 #[cfg(target_os = "linux")]
 pub mod workspace;

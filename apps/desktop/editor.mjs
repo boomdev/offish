@@ -1,6 +1,7 @@
 import { history, historyKeymap, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { setupConversation } from "./conversation.mjs";
 import { fitPanes, paneWidth } from "./layout.mjs";
 import { inlineReview, reviewHunks } from "./inline-review.mjs";
 import { markdownPreview } from "./markdown-preview.mjs";
@@ -1185,6 +1186,7 @@ $("entry-form").onsubmit = async event => {
 function setWorkspace(name) {
     viewEpoch++;
     workspace = name;
+    resetConversation(Boolean(workspace)).catch(report);
     $("workspace-layout").hidden = !name;
     $("workspace-home").hidden = Boolean(name);
     lastWorkspaceZone = "editor";
@@ -1486,6 +1488,34 @@ window.__TAURI__.event.listen("offish-close-request", () => {
     Promise.resolve().then(requestClose).catch(report);
 }).catch(report);
 await window.__TAURI__.event.listen("offish-cycle-tab", ({payload}) => cycleTabs(payload)).catch(report);
+const resetConversation = setupConversation({
+    invoke,
+    labelForPath: shownPath,
+    getSelection() {
+        if (!editor || !canReview(active) || active.review || choosing || mutating) return null;
+        const {from, to} = editor.state.selection.main;
+        return from === to ? null : {path: active.path, base: active.base.revision, from, to};
+    },
+    async reviewProposal({path, proposal}) {
+        const epoch = viewEpoch;
+        const disk = await invoke("read_document", {path});
+        if (epoch !== viewEpoch || disk.revision !== proposal.base_revision) {
+            throw new Error("The proposal is stale. Select the current text and ask again.");
+        }
+        const item = documents.get(path) ?? await open(path, "markdown");
+        if (epoch !== viewEpoch || choosing || mutating ||
+            item?.base.revision !== proposal.base_revision || !canReview(item)) {
+            throw new Error("Open the saved revision before reviewing this proposal.");
+        }
+        if (item.review) throw new Error("Finish the current proposal before reviewing another.");
+        display(item, false);
+        item.review = proposal;
+        updateReviewEditor(item);
+        renderTabs();
+        renderDetails();
+        focusReviewHunk(item);
+    },
+});
 setupPanes();
 await loadWorkspaceState().catch(report);
 async function watch() {

@@ -46,7 +46,27 @@
       <div id="editor">Select a file.</div>
     </main>
     <div id="details-divider" data-focus-zone="details-divider" class="pane-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Details pane" aria-controls="details-pane"></div>
-    <aside id="details-pane" data-focus-zone="details" aria-label="Document details">
+    <aside id="details-pane" data-focus-zone="details" aria-label="Conversation and document details">
+      <section id="conversation" aria-labelledby="conversation-heading">
+        <div class="conversation-heading">
+          <h2 id="conversation-heading">Conversation</h2>
+          <button id="conversation-clear" type="button" hidden>Clear history</button>
+        </div>
+        <ol id="conversation-history" aria-label="Conversation history" tabindex="0" hidden></ol>
+        <button id="conversation-review" type="button" hidden>Review proposed edit</button>
+        <form id="conversation-form">
+          <label for="conversation-prompt">Message to offline test provider</label>
+          <textarea id="conversation-prompt" rows="3" maxlength="2048" required
+            placeholder="Select text in the document, then ask for a revision."></textarea>
+          <ul id="conversation-mentions" aria-label="Mentioned references" hidden></ul>
+          <div class="entry-buttons">
+            <button id="conversation-mention" type="button">@ Add reference</button>
+            <button id="conversation-send" type="submit">Review context</button>
+            <button id="conversation-cancel" type="button" hidden>Cancel turn</button>
+          </div>
+        </form>
+        <p id="conversation-status" role="status"></p>
+      </section>
       <h2>Details</h2>
       <p id="details">Select a document.</p>
       <section id="review" hidden>
@@ -83,6 +103,36 @@
       </section>
     </aside>
   </div>
+  <dialog id="mention-dialog" aria-labelledby="mention-heading">
+    <h2 id="mention-heading">Add a reference</h2>
+    <div class="entry-buttons">
+      <button id="mention-up" type="button" hidden>Up a folder</button>
+      <button id="mention-folder" type="button" hidden>Mention this folder</button>
+      <button id="mention-close" type="button">Close</button>
+    </div>
+    <p id="mention-path" role="status"></p>
+    <ul id="mention-entries" aria-label="Files and folders"></ul>
+  </dialog>
+  <dialog id="context-dialog" aria-labelledby="context-heading" aria-describedby="context-intro">
+    <h2 id="context-heading">Approve conversation context</h2>
+    <p id="context-intro">The offline test provider receives the message and exact text shown here.</p>
+    <div id="context-items" tabindex="0" aria-label="Text to share"></div>
+    <p id="context-limit" hidden>Some folder entries were skipped. Only the text listed here is included.</p>
+    <div class="entry-buttons">
+      <button id="context-deny" type="button" autofocus>Cancel</button>
+      <button id="context-approve" type="button">Approve and send</button>
+    </div>
+  </dialog>
+  <dialog id="conversation-delete" aria-labelledby="conversation-delete-title">
+    <form method="dialog">
+      <h2 id="conversation-delete-title">Clear this workspace’s conversation?</h2>
+      <p>This deletes its saved messages from Offish.</p>
+      <div class="entry-buttons">
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="clear">Clear conversation</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="review-confirm" aria-labelledby="review-confirm-title" aria-describedby="review-confirm-message">
     <form method="dialog">
       <h2 id="review-confirm-title"></h2>

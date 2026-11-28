@@ -8,14 +8,14 @@ use std::{
 const RULE_FILE_LIMIT: u64 = 64 * 1024;
 const MAX_RULES: usize = 512;
 
-pub(super) struct DirectoryRules {
+pub(in crate::workspace) struct DirectoryRules {
     prefix: String,
     git: Vec<Rule>,
     offish: Vec<Rule>,
 }
 
 impl DirectoryRules {
-    pub(super) fn read(directory: &File, relative: &str) -> io::Result<Self> {
+    pub(in crate::workspace) fn read(directory: &File, relative: &str) -> io::Result<Self> {
         Ok(Self {
             prefix: if relative.is_empty() {
                 String::new()
@@ -28,7 +28,12 @@ impl DirectoryRules {
     }
 }
 
-pub(super) fn excluded(rules: &[DirectoryRules], path: &str, name: &str, directory: bool) -> bool {
+pub(in crate::workspace) fn excluded(
+    rules: &[DirectoryRules],
+    path: &str,
+    name: &str,
+    directory: bool,
+) -> bool {
     let mut git = false;
     let mut offish = false;
     for level in rules {

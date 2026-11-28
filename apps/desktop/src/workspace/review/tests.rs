@@ -98,8 +98,10 @@ fn commit(
 #[test]
 fn pilot_proposal_stages_two_exact_hunks_and_returns_restored_text() {
     let fixture = Fixture::new();
-    let brief = include_str!("../../../../../plans/research/phase-0/fixtures/pilot/brief.md");
-    let original = format!("\u{feff}{}", brief.replace('\n', "\r\n"));
+    let original = format!(
+        "\u{feff}---\r\nstatus: draft\r\n---\r\n\r\nCafé 😀\r\n{}\r\n\r\n{}\r\n",
+        PILOT_HUNKS[0].1, PILOT_HUNKS[1].1,
+    );
     fs::write(fixture.document(), &original).unwrap();
     let workspace = fixture.open();
     let base = workspace.read(PATH).unwrap().revision;

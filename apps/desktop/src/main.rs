@@ -1,8 +1,10 @@
 #[cfg(target_os = "linux")]
 mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
+    use offish::agent::{Conversation, Prepared, Request, Update};
     use offish::markdown::SourceEdits;
     use offish::markdown::table_cell::{self, TableCell, TableCellAddress};
+    use offish::workspace::context::history::{HistoryStore, Message};
     use offish::workspace::review::{Acceptance, Proposal, ReviewHistory};
     use offish::workspace::search::{SearchIndex, SearchReport, SearchRoot};
     use offish::workspace::{Document, Entry, PreviewImage, Save, TrashEntry, Workspace};
@@ -20,6 +22,8 @@ mod linux {
     struct Runtime {
         catalog: CatalogStore,
         recovery: PathBuf,
+        chat: PathBuf,
+        conversation: Conversation,
         active: Option<ActiveWorkspace>,
         warning: Option<String>,
         search: Arc<Mutex<SearchIndex>>,
@@ -35,6 +39,7 @@ mod linux {
         }
 
         fn replace_workspace(&mut self, workspace: Option<ActiveWorkspace>) {
+            self.conversation.revoke();
             self.active = workspace;
             self.search = Arc::default();
         }
@@ -43,6 +48,75 @@ mod linux {
             let roots = canonical_roots(paths)?;
             self.catalog.update(|catalog| catalog.remember(roots))
         }
+    }
+
+    fn with_conversation<T>(
+        state: State<'_, Current>,
+        call: impl FnOnce(
+            &mut Conversation,
+            &ActiveWorkspace,
+            &[PathBuf],
+            &HistoryStore,
+        ) -> io::Result<T>,
+    ) -> Response<T> {
+        let mut current = state
+            .lock()
+            .map_err(|_| "Conversation state is unavailable.")?;
+        let Runtime {
+            active,
+            chat,
+            private_paths,
+            conversation,
+            ..
+        } = &mut *current;
+        let workspace = active.as_ref().ok_or("Open a workspace folder first.")?;
+        let history = HistoryStore::new(chat, workspace).map_err(|error| error.to_string())?;
+        call(conversation, workspace, private_paths, &history).map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    fn conversation_history(state: State<'_, Current>) -> Response<Vec<Message>> {
+        with_conversation(state, |_, _, _, history| history.load())
+    }
+
+    #[tauri::command]
+    fn clear_conversation(state: State<'_, Current>) -> Response<()> {
+        with_conversation(state, |conversation, _, _, history| {
+            conversation.revoke();
+            history.clear()
+        })
+    }
+
+    #[tauri::command]
+    async fn prepare_agent_turn(app: AppHandle, request: Request) -> Response<Prepared> {
+        tauri::async_runtime::spawn_blocking(move || {
+            with_conversation(app.state(), |conversation, workspace, private, _| {
+                conversation.prepare(workspace, private, request)
+            })
+        })
+        .await
+        .map_err(|_| "Could not prepare context.")?
+    }
+
+    #[tauri::command]
+    fn approve_agent_turn(state: State<'_, Current>, id: String) -> Response<Message> {
+        with_conversation(state, |conversation, workspace, private, history| {
+            conversation.approve(&id, workspace, private, history)
+        })
+    }
+
+    #[tauri::command]
+    fn poll_agent_turn(state: State<'_, Current>, id: String) -> Response<Update> {
+        with_conversation(state, |conversation, workspace, private, history| {
+            conversation.poll(&id, workspace, private, history)
+        })
+    }
+
+    #[tauri::command]
+    fn cancel_agent_turn(state: State<'_, Current>, id: String) -> Response<Option<Message>> {
+        with_conversation(state, |conversation, _, _, history| {
+            conversation.cancel(&id, history)
+        })
     }
 
     fn with_workspace<T>(
@@ -655,6 +729,8 @@ mod linux {
                 let mut current = Runtime {
                     catalog: CatalogStore::new(config.clone()),
                     recovery: data.join("recovery"),
+                    chat: data.join("chat"),
+                    conversation: Conversation::default(),
                     active: None,
                     warning: None,
                     search: Arc::default(),
@@ -697,6 +773,12 @@ mod linux {
                 open_saved_workspace,
                 rename_workspace,
                 close_workspace,
+                conversation_history,
+                clear_conversation,
+                prepare_agent_turn,
+                approve_agent_turn,
+                poll_agent_turn,
+                cancel_agent_turn,
                 list_directory,
                 search_workspace,
                 create_entry,

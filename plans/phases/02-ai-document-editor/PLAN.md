@@ -1,6 +1,6 @@
 # Phase 2 — AI-native document editor
 
-**Status** In progress · Proposal acceptance and recovery\
+**Status** In progress · Offline conversation pilot verified\
 **Owner** Project maintainer  
 **Master requirements** DOC-01, ED-01, WS-02, WS-03, AI-01, AI-02, CHG-01, NFR-01–06  
 [Master plan](../../MASTER_PLAN.md) · [Phase 1 evidence](../01-core-workspace/PLAN.md) · [Phase 0 fixtures and research](../../research/phase-0/README.md)
@@ -169,7 +169,8 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-03 | Complete | The maintainer confirmed the Omarchy check and pushed the changes. |
 | P2-04 | In progress | The Linux backend passes acceptance, restore and checkpoint relocation fixtures. Native durability and cross-platform verification remain open. |
 | P2-05 | Complete on Omarchy | The deterministic pilot passes native inline review, partial acceptance, rejection, restore, and stale-revision checks. Release verification remains open under P2-04 and P2-08. |
-| P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
+| P2-06 | Complete on Omarchy | Exact-text approval, file and folder mentions, streaming, inline review, cancellation, and local history passed P2-T04 with the fixture provider. |
+| P2-07 | Planned | Implement shipping sign-in and verify platform sandbox containment. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
 
 ### P2-01 evidence
@@ -331,3 +332,54 @@ The maintainer also confirmed that the pilot proposal review worked.
 Physical pointer and screen-reader speech checks remain part of native
 release acceptance, alongside the P2-04 durability and cross-platform
 gates.
+
+### P2-06 bounded context and conversation
+
+1. Under AI-01, AI-02, WS-03 and NFR-04, capture a saved Markdown
+   selection and explicit file or folder mentions. Present the exact
+   bounded snapshot for approval, applying workspace exclusions and
+   using read-only, confined file handles.
+2. Under AI-01, AI-02 and CHG-01, stream a local fixture response through
+   the host and validate one candidate edit against the approved
+   selection and current revision. Stage it through P2-05 review.
+3. Under AI-01 and NFR-04, cancel an active turn and drop late output.
+   Keep a bounded transcript in private local storage and give the user
+   a deletion control. Recover interrupted turns without resuming grants.
+4. For P2-T04, verify approval, scope exclusions, immutable snapshots,
+   cancellation, candidate validation, retention and redaction. Exercise
+   the selection-to-review flow on Omarchy. P2-07 retains the live
+   provider and platform sandbox gates.
+
+In a saved copy of `brief.md`, select the schedule sentence and use
+**@ Add reference** to mention `assumptions.md`. Ask for a revision and
+choose **Review context**. The approval dialog shows the message,
+selection and exact text included from each reference. **Review proposed
+edit** opens the staged change in P2-05 inline review.
+
+The fixture can use up to six explicit mentions across open workspace
+roots. The host bounds folder traversal to eight levels and 256 entries.
+The snapshot includes a 4 KiB selection and up to eight text references
+of 4 KiB each. Hidden entries, ignored paths, private storage, links and
+invalid text stay outside the snapshot. The selected document is
+available only through its selection. [ADR-0007](../../decisions/ADR-0007-pilot-conversation-retention.md)
+records the pilot default of 20 local turns per workspace, the deletion
+control and the retention question for release.
+
+On 28 November 2026, the locked offline build, 49 Rust tests with desktop
+features, 46 Rust tests without desktop features, and eight JavaScript
+suites passed. Rust fixtures exercised immutable approved snapshots,
+excluded canaries, rejected out-of-selection candidates, stale revisions,
+and cancellation, including a fresh start after interrupted history.
+Frontend tests covered the approval boundary and a proposal response
+arriving after cancellation.
+
+The [native P2-T04 runner](run-omarchy-conversation.py) passed on Omarchy
+4.5.0 with WebKitGTK 2.54.1 and GTK 3.24.52. It exercised file and folder
+mentions in a disposable workspace, verified approval excerpts and an
+excluded canary, observed streamed updates, and accepted the staged edit
+through inline review. Declining and cancelling left the document
+unchanged. The transcript survived restart and was removed by clearing
+history. Run `python -B plans/phases/02-ai-document-editor/run-omarchy-conversation.py`
+after building the development binary.
+
+The maintainer tested the P2-06 conversation workflow and confirmed it worked.
