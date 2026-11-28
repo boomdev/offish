@@ -107,8 +107,12 @@ test("Codex approval discloses the external destination and approves the prepare
         switch (command) {
             case "conversation_history": return [];
             case "chatgpt_connected": return true;
+            case "codex_models": return {account_specific: true, models: [
+                {model: "sample", name: "Sample model", efforts: ["high"], default_effort: "high", fast: true},
+            ]};
             case "prepare_agent_turn":
                 assert.equal(args.request.provider, "codex");
+                assert.deepEqual(args.request.settings, {model: "sample", effort: "high", fast: true});
                 return {
                     id: "codex-turn", provider: "codex", prompt: "Revise.",
                     selection: {path: "root-0/brief.md", text: "Approved excerpt."}, files: [],
@@ -123,6 +127,9 @@ test("Codex approval discloses the external destination and approves the prepare
     await setupConversation({...setting, invoke})(true);
     $("conversation-provider").value = "codex";
     await $("conversation-provider").onchange();
+    assert.equal($("conversation-fast-label").hidden, false);
+    $("conversation-effort").value = "high";
+    $("conversation-fast").checked = true;
     $("conversation-prompt").value = "Revise.";
     await $("conversation-form").onsubmit({preventDefault() {}});
     assert.match($("context-intro").textContent, /to OpenAI using your ChatGPT plan/);
@@ -130,4 +137,39 @@ test("Codex approval discloses the external destination and approves the prepare
     assert.ok(!invoke.mock.calls.some(call => call.arguments[0] === "approve_agent_turn"));
     await $("context-approve").onclick();
     assert.equal(invoke.mock.calls.at(-1).arguments[0], "approve_agent_turn");
+});
+
+test("an Edit result opens inline review automatically and a whole document needs no selection", async t => {
+    const $ = fixtureDOM(t);
+    t.mock.timers.enable({apis: ["setTimeout"]});
+    const captured = {path: "root-0/brief.md", base: "rev"};
+    const entry = {id: "edit-turn", prompt: "Revise.", answer: "", references: 0, outcome: "interrupted"};
+    const staged = {path: captured.path, proposal: {base_revision: "rev"}};
+    const entered = Promise.withResolvers();
+    const invoke = t.mock.fn(async (command, args) => {
+        switch (command) {
+            case "conversation_history": return [];
+            case "prepare_agent_turn":
+                assert.deepEqual(args.request.selection, captured);
+                assert.equal(args.request.mode, "edit");
+                return {id: entry.id, mode: "edit", prompt: entry.prompt,
+                    selection: {...captured, whole: true, text: "Body"}, files: []};
+            case "approve_agent_turn": return {...entry};
+            case "poll_agent_turn": return {type: "done", message: {...entry, outcome: "complete"}, staged};
+            default: assert.fail(command);
+        }
+    });
+    await setupConversation({
+        ...setting, invoke, getSelection: () => captured,
+        reviewProposal(value) { entered.resolve(value); },
+    })(true);
+    $("conversation-mode").value = "edit";
+    $("conversation-prompt").value = entry.prompt;
+    await $("conversation-form").onsubmit({preventDefault() {}});
+    assert.ok($("context-items").children.some(node => node.textContent === "Document body in root-0/brief.md"));
+    await $("context-approve").onclick();
+    t.mock.timers.tick(400);
+    assert.deepEqual(await entered.promise, staged);
+    await Promise.resolve();
+    assert.equal($("conversation-review").hidden, true);
 });

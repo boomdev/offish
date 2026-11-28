@@ -8,8 +8,8 @@
 ## 1. Objectives
 
 Deliver the first useful Offish release. A user opens a local folder, edits
-Markdown visually, asks an authorised agent to revise a selection using chosen
-references, reviews the proposed changes, accepts independent hunks, and restores
+Markdown visually, asks an authorised agent about the document or requests a
+revision using chosen references, reviews the proposed changes, accepts independent hunks, and restores
 a checkpoint. The local authoring and review workflow also runs offline with a
 deterministic fixture provider. Offline authoring requires no account.
 
@@ -170,7 +170,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-04 | In progress | The Linux backend passes acceptance, restore and checkpoint relocation fixtures. Native durability and cross-platform verification remain open. |
 | P2-05 | Complete on Omarchy | The deterministic pilot passes native inline review, partial acceptance, rejection, restore, and stale-revision checks. Release verification remains open under P2-04 and P2-08. |
 | P2-06 | Complete on Omarchy | Exact-text approval, file and folder mentions, streaming, inline review, cancellation, and local history passed P2-T04 with the fixture provider. |
-| P2-07 | In progress | The Linux adapter and isolated startup are implemented. The maintainer confirmed ChatGPT authorization on retry. A live model turn still needs evidence. macOS and Windows require desktop ports and native containment checks. |
+| P2-07 | In progress | The maintainer verified live Codex, inline review, and turn cancellation on Omarchy. Release network containment and macOS and Windows verification remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
 
 ### P2-01 evidence
@@ -204,6 +204,14 @@ the available viewport height. The editor and Files tree scroll
 independently and their headers stay in place. The maintainer finished
 the native table-preview and scroll checks. Native paint timing remains
 part of P2-T02.
+
+Under DOC-01, ED-01 and P2-T02, an Omarchy WebKitGTK probe reproduced
+incorrect pointer mapping below a rendered Markdown table. The table's
+vertical margins contributed 9 CSS pixels that CodeMirror's height
+measurement omitted. Removing the margins aligned the visible text and
+pointer hits. The [native selection regression](run-omarchy-selection.py)
+passed clicks and drags at three heights above and below the table in
+Live preview, Simple, and Source.
 
 ### P2-03 evidence
 
@@ -399,9 +407,10 @@ The maintainer tested the P2-06 conversation workflow and confirmed it worked.
    desktop implementations and test environments are available.
 
 The pilot requires the static Codex CLI 0.172.0 executable, bubblewrap,
-curl, the Linux Secret Service and `xdg-open`. Use `OFFISH_CODEX_BINARY`
-to point Offish at the real executable when it is installed behind a
-launcher shim. The provider selector defaults to the offline provider.
+curl, the Linux Secret Service and `xdg-open`. Offish discovers the pinned
+mise installation or a native executable on its search path. Set
+`OFFISH_CODEX_BINARY` to override discovery. The provider selector defaults
+to the offline provider.
 To exercise Codex, select **Codex (Linux pilot)**, choose **Continue with
 ChatGPT**, and finish authorization in the browser. In a disposable
 workspace, approve a selection and reference, then review the proposed
@@ -422,10 +431,45 @@ offline provider.
 To repeat the native protocol and filesystem probes on Omarchy, set
 `OFFISH_CODEX_BINARY` for
 `cargo test --locked --offline --no-default-features agent::codex::tests -- --ignored`.
-Live ChatGPT entitlement, an approved live turn and cancellation,
-release network containment, and the macOS and Windows paths remain open.
+Release network containment and the macOS and Windows paths remain open.
 
 The maintainer completed browser authorization on a second attempt after
 the first browser redirect reported a refused loopback connection. Follow-up
 for AI-01 and P2-T04 makes the message action visible alongside the composer
 and retains explicit context approval before sending.
+The maintainer subsequently exercised the live Codex and inline review workflow
+on Omarchy.
+
+The regular launch initially missed the runtime behind the mise wrapper.
+For AI-02 and P2-T04, the resolver test now covers the pinned mise installation,
+wrapper rejection and explicit overrides. The native protocol and filesystem
+probes passed on Omarchy with `OFFISH_CODEX_BINARY` unset. Version verification
+still runs inside bubblewrap.
+The maintainer confirmed that the regular launch found Codex and that
+cancelling a live turn worked.
+
+### Conversation usability follow-up
+
+Under AI-01, AI-02 and CHG-01, add Ask and Edit turns with explicit
+approval for either a selection or the saved document. Show staged edits
+in inline review when they arrive. Under P2-T04, verify that Ask only
+returns an answer, Edit remains revision-bound, and the provider receives
+the approved model, effort and supported fast tier.
+
+Ask defaults to the saved document when the cursor has no selection.
+Edit defaults to its editable body and preserves front matter. The
+approval dialog shows the exact text and the selected turn settings.
+The pilot document context limit is 48 KiB. Validated edits open inline
+automatically. If the target cannot open safely, the pending proposal
+remains available through the review action. [ADR-0009](../../decisions/ADR-0009-conversation-modes-and-settings.md)
+records the context and catalog decisions.
+
+The Omarchy conversation runner passed whole-document Ask, whole-body
+Edit with automatic review, selection-based review and acceptance,
+cancellation, and retained history. Rust covered byte-exact whole-body
+splices and model capability validation. JavaScript covered disclosure
+approval and automatic review. The signed-in native Codex picker
+displayed model and effort settings and Fast mode for the default model.
+It used the pinned runtime catalog after the account catalog request failed.
+The maintainer tested the updated conversation workflow and confirmed it
+worked. Per-model and per-tier live inference coverage remains open.

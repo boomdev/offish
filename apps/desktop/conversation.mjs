@@ -9,6 +9,10 @@ const providerName = value => value === "codex" ? "Codex" : "Offline test provid
 export function setupConversation({invoke, getSelection, labelForPath, reviewProposal}) {
     const prompt = $("conversation-prompt");
     const provider = $("conversation-provider");
+    const mode = $("conversation-mode");
+    const model = $("conversation-model");
+    const effort = $("conversation-effort");
+    const fast = $("conversation-fast");
     const context = $("context-dialog");
     const picker = $("mention-dialog");
     const confirmDelete = $("conversation-delete");
@@ -24,6 +28,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
     let deleteGeneration = -1;
     let accountBusy = false;
     let connected = false;
+    let models = [];
     const status = message => {
         $("conversation-status").textContent = message;
     };
@@ -33,7 +38,10 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         const codex = provider.value === "codex";
         prompt.readOnly = locked;
         provider.disabled = locked || accountBusy;
+        mode.disabled = locked;
+        model.disabled = effort.disabled = fast.disabled = locked || accountBusy;
         $("conversation-send").disabled = locked || (codex && (!connected || accountBusy));
+        $("conversation-model-options").hidden = !codex || !connected;
         $("conversation-account").hidden = !codex;
         $("conversation-connect").disabled = locked || accountBusy;
         $("conversation-connect").textContent = connected ? "Reconnect ChatGPT" : "Continue with ChatGPT";
@@ -165,6 +173,50 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         container.append(label, excerpt);
     }
 
+    function option(value, label) {
+        const entry = document.createElement("option");
+        entry.value = value;
+        entry.textContent = label;
+        return entry;
+    }
+
+    function updateEffort() {
+        const choice = models.find(entry => entry.model === model.value);
+        const defaults = choice?.default_effort;
+        effort.replaceChildren(option("", defaults ? `Default (${defaults})` : "Default"),
+            ...(choice?.efforts ?? []).map(value => option(value, value)));
+        effort.value = "";
+        fast.checked = false;
+        $("conversation-effort-label").hidden = !choice?.efforts.length;
+        $("conversation-fast-label").hidden = !choice?.fast;
+    }
+
+    async function loadModels() {
+        models = [];
+        model.replaceChildren(option("", "Pilot default"));
+        model.value = "";
+        updateEffort();
+        if (!connected) return;
+        try {
+            const catalog = await invoke("codex_models");
+            models = catalog.models;
+            model.replaceChildren(option("", "Pilot default"),
+                ...models.map(entry => option(entry.model, entry.name)));
+            model.value = models.find(entry => entry.model === "gpt-6.1-sol")?.model ?? models[0]?.model ?? "";
+            updateEffort();
+            if (!catalog.account_specific) {
+                status("Using the Codex model catalog. ChatGPT checks access when you send.");
+            }
+        } catch (error) {
+            status(String(error));
+        }
+    }
+
+    model.onchange = updateEffort;
+    mode.onchange = () => {
+        prompt.placeholder = mode.value === "edit" ? "Describe the changes to make." : "Ask about the document.";
+    };
+
     provider.onchange = async () => {
         status("");
         render();
@@ -173,6 +225,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         render();
         try {
             connected = await invoke("chatgpt_connected");
+            await loadModels();
         } catch (error) {
             connected = false;
             status(String(error));
@@ -190,7 +243,8 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         try {
             await invoke(connect ? "connect_chatgpt" : "disconnect_chatgpt");
             connected = connect;
-            status(connect ? "ChatGPT connected. Select text in a saved Markdown file, then send a message." : "ChatGPT disconnected.");
+            status(connect ? "ChatGPT connected." : "ChatGPT disconnected.");
+            await loadModels();
         } catch (error) {
             status(String(error));
         } finally {
@@ -206,9 +260,13 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         event.preventDefault();
         if (busy || pending || running) return;
         if (provider.value === "codex" && (!connected || accountBusy)) return;
-        const selection = getSelection();
-        if (!selection) {
-            status("Select text in a saved Markdown document before preparing context.");
+        const selection = getSelection(mode.value);
+        if (selection === undefined) {
+            status("Make sure the active Markdown document is saved and ready before sending.");
+            return;
+        }
+        if (mode.value === "edit" && !selection) {
+            status("Open a saved Markdown document to request an edit.");
             return;
         }
         const current = generation;
@@ -217,17 +275,33 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         render();
         try {
             const prepared = await invoke("prepare_agent_turn", {request: {
-                prompt: prompt.value, selection, mentions, provider: provider.value,
+                prompt: prompt.value, selection, mentions, provider: provider.value, mode: mode.value,
+                settings: provider.value === "codex" ? {
+                    model: model.value || null, effort: effort.value || null, fast: fast.checked,
+                } : {},
             }});
             if (current !== generation) return;
             pending = prepared.id;
             $("context-intro").textContent = prepared.provider === "codex" ?
                 "This turn sends your message and the exact text shown here to OpenAI using your ChatGPT plan." :
                 "The offline test provider receives the message and exact text shown here.";
+            const task = [prepared.mode === "edit" ? "Edit" : "Ask"];
+            if (prepared.provider === "codex") {
+                const settings = prepared.settings;
+                task.push(models.find(entry => entry.model === settings?.model)?.name ??
+                    settings?.model ?? "Pilot default");
+                if (settings?.effort) task.push(`Effort ${settings.effort}`);
+                if (settings?.fast) task.push("Fast mode");
+            }
+            $("context-task").textContent = task.join(" · ");
             const items = $("context-items");
             items.replaceChildren();
             appendExcerpt(items, "Message", prepared.prompt);
-            appendExcerpt(items, `Selection in ${labelForPath(prepared.selection.path)}`, prepared.selection.text);
+            if (prepared.selection) {
+                const label = prepared.selection.whole ?
+                    (prepared.mode === "edit" ? "Document body" : "Whole document") : "Selection";
+                appendExcerpt(items, `${label} in ${labelForPath(prepared.selection.path)}`, prepared.selection.text);
+            }
             for (const file of prepared.files) appendExcerpt(items, labelForPath(file.path), file.text);
             $("context-limit").hidden = !prepared.limited;
             status("");
@@ -289,7 +363,13 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
                 if (update.type === "done") {
                     history[history.indexOf(message)] = update.message;
                     staged = update.staged;
-                    status(staged ? "Proposal ready for review." : "The edit could not be staged. Select the current text and try again.");
+                    if (staged) {
+                        renderHistory();
+                        await showStaged();
+                        return;
+                    }
+                    status(update.message.outcome === "complete" ? "Answer ready." :
+                        "The edit could not be staged. Check the saved document and try again.");
                 } else if (update.type === "failed") {
                     history[history.indexOf(message)] = update.message;
                     status(update.error);
@@ -367,7 +447,7 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         }
     };
 
-    $("conversation-review").onclick = async () => {
+    async function showStaged() {
         const proposal = staged;
         const current = generation;
         if (!proposal || busy) return;
@@ -377,17 +457,18 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
             await reviewProposal(proposal);
             if (current === generation) {
                 staged = null;
-                status("");
+                status("Proposal opened in the editor.");
             }
         } catch (error) {
-            if (current === generation) status(String(error));
+            if (current === generation) status(`Proposal ready. ${error}`);
         } finally {
             if (current === generation) {
                 busy = false;
                 render();
             }
         }
-    };
+    }
+    $("conversation-review").onclick = showStaged;
 
     $("conversation-clear").onclick = () => {
         deleteGeneration = generation;
@@ -425,6 +506,8 @@ export function setupConversation({invoke, getSelection, labelForPath, reviewPro
         pending = running = staged = null;
         busy = Boolean(enabled);
         provider.value = "offline";
+        mode.value = "ask";
+        mode.onchange();
         prompt.value = "";
         for (const dialog of [picker, context, confirmDelete]) {
             if (dialog.open) dialog.close();

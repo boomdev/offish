@@ -41,6 +41,10 @@ limited to its approved selection even when a mentioned folder contains
 it. Cancellation or a workspace switch drops any active grant. Starting
 again requires fresh context approval.
 
+[ADR-0009](ADR-0009-conversation-modes-and-settings.md) updates the document
+scope and selection limits for Ask and Edit. The retention and reference
+rules continue to apply.
+
 ## Consequences and validation
 
 Restart recovers the transcript and shows incomplete turns as

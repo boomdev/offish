@@ -1,5 +1,49 @@
 use super::*;
 
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn discovers_pinned_mise_install_and_skips_wrappers() {
+    let scratch = env::temp_dir().join(format!("offish-codex-discovery-{}", std::process::id()));
+    fs::create_dir(&scratch).unwrap();
+    let _cleanup = Cleanup(scratch.clone());
+    let shim_dir = scratch.join("shims");
+    let native_dir = scratch.join("native");
+    let mise_data = scratch.join("mise-data");
+    let pinned = mise_data
+        .join("installs/codex")
+        .join(CODEX_VERSION)
+        .join("bin/codex");
+    fs::create_dir(&shim_dir).unwrap();
+    fs::create_dir(&native_dir).unwrap();
+    fs::create_dir_all(pinned.parent().unwrap()).unwrap();
+    let direct = native_dir.join("codex");
+    let mise = scratch.join("mise");
+    for file in [&pinned, &direct, &mise] {
+        fs::write(file, b"\x7fELF").unwrap();
+        fs::set_permissions(file, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let shim = shim_dir.join("codex");
+    std::os::unix::fs::symlink(&mise, &shim).unwrap();
+    let search = [shim_dir, native_dir];
+    assert_eq!(
+        resolve_binary(None, Some(&mise_data), search.clone()).unwrap(),
+        pinned
+    );
+    assert_eq!(resolve_binary(None, None, search.clone()).unwrap(), direct);
+    assert_eq!(
+        resolve_binary(Some(&direct), Some(&mise_data), search.clone()).unwrap(),
+        direct
+    );
+    assert!(resolve_binary(Some(&shim), Some(&mise_data), search).is_err());
+}
+
 fn fixture(frames: &[Value]) -> Command {
     let mut command = Command::new("/bin/sh");
     command
@@ -28,7 +72,7 @@ fn only_completed_matching_turn_can_return_a_replacement() {
     let mut received = false;
     let output = finish_turn(&mut server, "thread", || received = true).unwrap();
     assert!(received);
-    assert_eq!(output.replacement, "Plan for December.");
+    assert_eq!(output.replacement.as_deref(), Some("Plan for December."));
 }
 
 #[test]
@@ -56,7 +100,7 @@ fn pinned_binary_initializes_and_starts_an_ephemeral_thread_offline() {
     let mut command = sandbox(&binary, false).unwrap();
     let mut server =
         Transport::spawn(command.args(CONFIG), &stop, Duration::from_secs(15)).unwrap();
-    let result = open_thread(&mut server).unwrap();
+    let result = open_thread(&mut server, MODEL, Mode::Edit).unwrap();
     assert!(
         result
             .pointer("/thread/id")
@@ -70,12 +114,6 @@ fn pinned_binary_initializes_and_starts_an_ephemeral_thread_offline() {
 fn sandbox_hides_the_workspace_and_refuses_direct_writes() {
     let scratch = env::temp_dir().join(format!("offish-sandbox-check-{}", std::process::id()));
     std::fs::create_dir(&scratch).unwrap();
-    struct Cleanup(PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
     let _cleanup = Cleanup(scratch.clone());
 
     let canary = scratch.join("private.md");
@@ -123,4 +161,39 @@ int main(int argc, char **argv) {
         std::fs::read_to_string(canary).unwrap(),
         "host-private fixture"
     );
+}
+
+#[test]
+fn model_options_combine_account_visibility_with_runtime_capabilities() {
+    let account = json!({"models":[
+        {"slug":"first","visibility":"list","display_name":"First"},
+        {"slug":"second","visibility":"list","display_name":"Second"},
+        {"slug":"hidden","visibility":"hidden"}
+    ]});
+    let runtime = json!({"data":[
+        {"model":"first","hidden":false,"defaultReasoningEffort":"medium",
+         "supportedReasoningEfforts":[{"reasoningEffort":"medium"},{"reasoningEffort":"high"}],
+         "serviceTiers":[{"id":"priority"}]},
+        {"model":"second","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"low"}]}
+    ]});
+    let models = choices(Some(&account), &runtime);
+    assert_eq!(models.len(), 2);
+    assert_eq!(choices(None, &runtime).len(), 2);
+    assert!(models[0].fast);
+    assert!(!models[1].fast);
+    let mut settings = Settings {
+        model: Some("first".into()),
+        effort: Some("high".into()),
+        fast: true,
+    };
+    assert_eq!(
+        turn_settings(&settings, &models).unwrap(),
+        ("first".into(), Some("high".into()), "priority".into())
+    );
+    settings.model = Some("second".into());
+    assert!(turn_settings(&settings, &models).is_err());
+    settings.effort = Some("low".into());
+    assert!(turn_settings(&settings, &models).is_err());
+    settings.fast = false;
+    assert_eq!(turn_settings(&settings, &models).unwrap().2, "default");
 }

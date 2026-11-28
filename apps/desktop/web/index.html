@@ -58,9 +58,22 @@
           <option value="codex">Codex (Linux pilot)</option>
         </select>
         <form id="conversation-form">
+          <div class="conversation-options">
+            <label>Mode
+              <select id="conversation-mode">
+                <option value="ask">Ask</option>
+                <option value="edit">Edit</option>
+              </select>
+            </label>
+            <div id="conversation-model-options" hidden>
+              <label>Model <select id="conversation-model"></select></label>
+              <label id="conversation-effort-label" hidden>Effort <select id="conversation-effort"></select></label>
+              <label id="conversation-fast-label" hidden><input id="conversation-fast" type="checkbox"> Fast mode</label>
+            </div>
+          </div>
           <label id="conversation-prompt-label" for="conversation-prompt">Message to offline test provider</label>
           <textarea id="conversation-prompt" rows="3" maxlength="2048" required
-            placeholder="Select text in the document, then ask for a revision."></textarea>
+            placeholder="Ask about the document."></textarea>
           <ul id="conversation-mentions" aria-label="Mentioned references" hidden></ul>
           <div class="entry-buttons">
             <button id="conversation-send" type="submit">Send message</button>
@@ -125,6 +138,7 @@
   <dialog id="context-dialog" aria-labelledby="context-heading" aria-describedby="context-intro">
     <h2 id="context-heading">Approve conversation context</h2>
     <p id="context-intro"></p>
+    <p id="context-task"></p>
     <div id="context-items" tabindex="0" aria-label="Text to share"></div>
     <p id="context-limit" hidden>Some folder entries were skipped. Only the text listed here is included.</p>
     <div class="entry-buttons">

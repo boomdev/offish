@@ -24,7 +24,8 @@ pub mod codex;
 mod tests;
 
 const PROMPT_BYTES: usize = 2048;
-const SELECTION_BYTES: usize = 4096;
+const DOCUMENT_BYTES: usize = 48 * 1024;
+const REPLACEMENT_BYTES: usize = 64 * 1024;
 const MENTIONS: usize = 6;
 static TURN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -34,7 +35,11 @@ pub struct Request {
     #[serde(default)]
     provider: Provider,
     prompt: String,
-    selection: Selection,
+    selection: Option<Selection>,
+    #[serde(default)]
+    mode: Mode,
+    #[serde(default)]
+    settings: codex::Settings,
     mentions: Vec<Mention>,
 }
 
@@ -43,8 +48,8 @@ pub struct Request {
 struct Selection {
     path: String,
     base: String,
-    from: usize,
-    to: usize,
+    from: Option<usize>,
+    to: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -54,12 +59,22 @@ struct Mention {
     directory: bool,
 }
 
+#[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+    Ask,
+    #[default]
+    Edit,
+}
+
 #[derive(Clone, Serialize)]
 pub struct Prepared {
     provider: Provider,
     id: String,
     prompt: String,
-    selection: Captured,
+    selection: Option<Captured>,
+    mode: Mode,
+    settings: codex::Settings,
     files: Vec<Snippet>,
     limited: bool,
 }
@@ -71,13 +86,16 @@ struct Captured {
     from: usize,
     to: usize,
     text: String,
+    whole: bool,
     #[serde(skip)]
     crlf: bool,
 }
 
 struct ProviderContext<'a> {
     prompt: &'a str,
-    selection: &'a Captured,
+    selection: Option<&'a Captured>,
+    mode: Mode,
+    settings: &'a codex::Settings,
     files: &'a [Snippet],
 }
 
@@ -87,6 +105,7 @@ trait Adapter {
 
 enum Event {
     Pending,
+    Complete,
     Text(String),
     Candidate(SourceEdit),
     Failed(String),
@@ -101,7 +120,18 @@ impl Adapter for Fixture {
             .iter()
             .filter(|file| !file.text.is_empty())
             .count();
-        let replacement = match context.selection.text.as_str() {
+        let Some(selection) = context.selection.filter(|_| context.mode == Mode::Edit) else {
+            let answer = if let Some(document) = context.selection {
+                format!(
+                    "The approved passage contains {} words. I received {reference_count} text references.",
+                    document.text.split_whitespace().count()
+                )
+            } else {
+                format!("I received {reference_count} text references.")
+            };
+            return Box::new([Event::Text(answer), Event::Complete].into_iter());
+        };
+        let replacement = match selection.text.as_str() {
             "Keep the first release on the current schedule."
             | "Review the first release schedule after the pilot."
                 if context
@@ -126,9 +156,9 @@ impl Adapter for Fixture {
             )),
             Event::Text("Checking the edit against the saved document.".into()),
             Event::Candidate(SourceEdit {
-                from: context.selection.from,
-                to: context.selection.to,
-                expected: context.selection.text.clone(),
+                from: selection.from,
+                to: selection.to,
+                expected: selection.text.clone(),
                 replacement,
             }),
         ];
@@ -137,7 +167,8 @@ impl Adapter for Fixture {
 }
 
 struct Running {
-    selection: Captured,
+    selection: Option<Captured>,
+    mode: Mode,
     message: Message,
     stream: Box<dyn Iterator<Item = Event> + Send>,
 }
@@ -195,37 +226,16 @@ impl Conversation {
         if request.mentions.len() > MENTIONS {
             return Err(io::Error::other("Use at most six file or folder mentions."));
         }
-        let Selection {
-            path,
-            base,
-            from,
-            to,
-        } = request.selection;
-        if from >= to || to - from > SELECTION_BYTES {
-            return Err(io::Error::other(
-                "Select a short passage in the saved Markdown document.",
-            ));
-        }
         let mut reader = ContextReader::new(private);
-        let (_, root, relative) = workspace.route(&path)?;
-        let source = checked_source(&mut reader, root, relative, &base)?;
-        let range = SourceMap::new(&source)?.byte_range(from..to)?;
-        if range.len() > SELECTION_BYTES
-            || source[range.clone()].trim().is_empty()
-            || front_matter_range(&source).is_some_and(|opaque| range.start < opaque.end)
-        {
+        let selection = request
+            .selection
+            .map(|selection| capture(workspace, &mut reader, selection, request.mode))
+            .transpose()?;
+        if request.mode == Mode::Edit && selection.is_none() {
             return Err(io::Error::other(
-                "Choose up to 4 KiB of document text after any front matter.",
+                "Open a saved Markdown document to request an edit.",
             ));
         }
-        let selection = Captured {
-            path,
-            base,
-            from: range.start,
-            to: range.end,
-            text: source[range].into(),
-            crlf: source.contains("\r\n"),
-        };
         // Capture explicit files before allocating the remaining budget to folders.
         for mention in request
             .mentions
@@ -243,6 +253,8 @@ impl Conversation {
         let serial = TURN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let prepared = Prepared {
             provider: request.provider,
+            mode: request.mode,
+            settings: request.settings,
             id: format!("{}-{time}-{serial}", std::process::id()),
             prompt: prompt.into(),
             selection,
@@ -304,7 +316,9 @@ impl Conversation {
         let Phase::AwaitingApproval(prepared) = std::mem::take(&mut self.0) else {
             unreachable!()
         };
-        prepared.selection.current_source(workspace, private)?;
+        if let Some(selection) = &prepared.selection {
+            selection.current_source(workspace, private)?;
+        }
         let message = Message {
             provider: prepared.provider,
             id: prepared.id,
@@ -316,11 +330,14 @@ impl Conversation {
         history.append(message.clone())?;
         let stream = adapter.start(ProviderContext {
             prompt: &message.prompt,
-            selection: &prepared.selection,
+            selection: prepared.selection.as_ref(),
+            mode: prepared.mode,
+            settings: &prepared.settings,
             files: &prepared.files,
         });
         self.0 = Phase::Streaming(Box::new(Running {
             selection: prepared.selection,
+            mode: prepared.mode,
             message: message.clone(),
             stream,
         }));
@@ -360,20 +377,29 @@ impl Conversation {
                 turn.message.answer.push_str(&text);
                 return Ok(Update::Delta { text });
             }
-            return self.finish(history, None);
+            return self.finish(history, None, false);
         }
+        let answered = matches!(event, Some(Event::Complete)) && turn.mode == Mode::Ask;
         let staged = match event {
-            Some(Event::Candidate(edit)) => turn.selection.stage(id, edit, workspace, private).ok(),
+            Some(Event::Candidate(edit)) if turn.mode == Mode::Edit => turn
+                .selection
+                .as_ref()
+                .and_then(|selection| selection.stage(id, edit, workspace, private).ok()),
             _ => None,
         };
-        self.finish(history, staged)
+        self.finish(history, staged, answered)
     }
 
-    fn finish(&mut self, history: &HistoryStore, staged: Option<Staged>) -> io::Result<Update> {
+    fn finish(
+        &mut self,
+        history: &HistoryStore,
+        staged: Option<Staged>,
+        answered: bool,
+    ) -> io::Result<Update> {
         let Phase::Streaming(mut turn) = std::mem::take(&mut self.0) else {
             unreachable!()
         };
-        turn.message.outcome = if staged.is_some() {
+        turn.message.outcome = if staged.is_some() || answered {
             Outcome::Complete
         } else {
             Outcome::Stale
@@ -421,14 +447,14 @@ impl Captured {
     fn stage(
         &self,
         id: &str,
-        edit: SourceEdit,
+        mut edit: SourceEdit,
         workspace: &ActiveWorkspace,
         private: &[PathBuf],
     ) -> io::Result<Staged> {
         if edit.from != self.from
             || edit.to != self.to
             || edit.expected != self.text
-            || edit.replacement.len() > 2 * SELECTION_BYTES
+            || edit.replacement.len() > REPLACEMENT_BYTES
             || edit.expected == edit.replacement
         {
             return Err(io::Error::other(
@@ -436,7 +462,17 @@ impl Captured {
             ));
         }
         let source = self.current_source(workspace, private)?;
+        if self.whole
+            && edit.from == source.len()
+            && !source.ends_with('\n')
+            && front_matter_range(&source).is_some_and(|metadata| metadata.end == edit.from)
+            && !edit.replacement.starts_with(['\r', '\n'])
+        {
+            edit.replacement
+                .insert_str(0, if self.crlf { "\r\n" } else { "\n" });
+        }
         let (_, _, relative) = workspace.route(&self.path)?;
+        let edit = if self.whole { trim_edit(edit) } else { edit };
         let batch = SourceEdits {
             profile: PROFILE_VERSION,
             edits: vec![edit],
@@ -451,12 +487,94 @@ impl Captured {
                 base_revision: self.base.clone(),
                 profile: PROFILE_VERSION,
                 hunks: vec![Hunk {
-                    id: "selection".into(),
+                    id: if self.whole { "document" } else { "selection" }.into(),
                     edit,
                 }],
             },
         })
     }
+}
+
+fn capture(
+    workspace: &ActiveWorkspace,
+    reader: &mut ContextReader,
+    selection: Selection,
+    mode: Mode,
+) -> io::Result<Captured> {
+    let Selection {
+        path,
+        base,
+        from,
+        to,
+    } = selection;
+    let (_, root, relative) = workspace.route(&path)?;
+    let source = checked_source(reader, root, relative, &base)?;
+    let whole = from.is_none() && to.is_none();
+    let metadata_end = front_matter_range(&source)
+        .map(|range| range.end)
+        .unwrap_or_else(|| if source.starts_with('\u{feff}') { 3 } else { 0 });
+    let range = match (from, to) {
+        (Some(from), Some(to)) if from < to => SourceMap::new(&source)?.byte_range(from..to)?,
+        (None, None) if mode == Mode::Ask => 0..source.len(),
+        (None, None) => {
+            SourceMap::new(&source)?;
+            metadata_end..source.len()
+        }
+        _ => return Err(io::Error::other("The selected passage is invalid.")),
+    };
+    if range.len() > DOCUMENT_BYTES {
+        return Err(io::Error::other(
+            "This context exceeds 48 KiB. Select a smaller passage.",
+        ));
+    }
+    if mode == Mode::Edit && range.start < metadata_end {
+        return Err(io::Error::other(
+            "Choose document text after the front matter to edit.",
+        ));
+    }
+    let text = source[range.clone()].to_owned();
+    Ok(Captured {
+        path,
+        base,
+        from: range.start,
+        to: range.end,
+        text,
+        whole,
+        crlf: source.contains("\r\n"),
+    })
+}
+
+// Compact a full-body replacement into one exact source hunk. A CRLF
+// contributes one source boundary even when only one byte differs.
+fn trim_edit(mut edit: SourceEdit) -> SourceEdit {
+    let before = edit.expected.as_bytes();
+    let after = edit.replacement.as_bytes();
+    let boundary = |text: &str, index: usize| {
+        text.is_char_boundary(index)
+            && !(index > 0
+                && text.as_bytes().get(index) == Some(&b'\n')
+                && text.as_bytes()[index - 1] == b'\r')
+    };
+    let mut prefix = before.iter().zip(after).take_while(|(a, b)| a == b).count();
+    while !boundary(&edit.expected, prefix) || !boundary(&edit.replacement, prefix) {
+        prefix -= 1;
+    }
+    let mut suffix = before[prefix..]
+        .iter()
+        .rev()
+        .zip(after[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !boundary(&edit.expected, before.len() - suffix)
+        || !boundary(&edit.replacement, after.len() - suffix)
+    {
+        suffix -= 1;
+    }
+    edit.from += prefix;
+    edit.to -= suffix;
+    edit.expected = edit.expected[prefix..before.len() - suffix].into();
+    edit.replacement = edit.replacement[prefix..after.len() - suffix].into();
+    edit
 }
 
 fn checked_source(
@@ -468,7 +586,7 @@ fn checked_source(
     let document = reader.selection_document(root, relative)?;
     if document.revision != base {
         return Err(io::Error::other(
-            "The selection changed on disk. Select it again.",
+            "The document changed on disk. Prepare the context again.",
         ));
     }
     document

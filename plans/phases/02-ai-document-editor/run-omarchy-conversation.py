@@ -6,6 +6,7 @@ from pathlib import Path
 import runpy
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[3]
 HELPERS = runpy.run_path(str(ROOT / "plans/phases/01-core-workspace/run-omarchy-acceptance.py"))
@@ -76,6 +77,31 @@ def check(binary, scratch, fixture):
         activate("◇ brief.md")
         focus_window(process)
 
+        enter_prompt("How many words are in the whole document?")
+        activate("Send message")
+        dialog = node("Approve conversation context", "dialog")
+        assert with_text(dialog, "An unselected paragraph stays in the file.")
+        activate("Approve and send")
+        show_text("Answer ready.")
+        assert not with_name(app, "Review proposed edit")
+        assert brief.read_bytes() == original
+        print("PASS Ask uses the whole document without a selection or proposal", flush=True)
+
+        mode = node("Mode", "combo box")
+        assert mode.get_component_iface().grab_focus()
+        for key in ("Down", "End", "Return"):
+            press(process, "-k", key)
+            time.sleep(0.25)
+        enter_prompt("Make the whole body uppercase.")
+        activate("Send message")
+        dialog = node("Approve conversation context", "dialog")
+        assert with_text(dialog, "An unselected paragraph stays in the file.")
+        activate("Approve and send")
+        wait_for("whole-body inline proposal", lambda: focused(app, "Accept document change"), process)
+        assert brief.read_bytes() == original
+        activate("Reject document change")
+        print("PASS Edit stages the whole body and opens review automatically", flush=True)
+
         select_passage(PASSAGE)
         enter_prompt(DENY_PROMPT)
         activate("Send message")
@@ -83,7 +109,6 @@ def check(binary, scratch, fixture):
         assert with_text(dialog, PASSAGE)
         activate("Cancel")
         show_text("Context was declined.")
-        assert not with_name(app, "Conversation history")
         assert brief.read_bytes() == original
 
         activate("@ Add reference")
@@ -102,10 +127,8 @@ def check(binary, scratch, fixture):
         activate("Approve and send")
         show_text("prepared a revision for your selection")
         show_text("Received 2 nonempty text references.")
-        node("Review proposed edit", "button")
-        assert brief.read_bytes() == original
-        activate("Review proposed edit")
         wait_for("inline proposal focus", lambda: focused(app, "Accept selection change"), process)
+        assert brief.read_bytes() == original
         activate("Accept selection change")
         wait_for("accepted bytes", lambda: brief.read_bytes() == updated, process)
         print("PASS approval, file and folder mentions, streaming and staged acceptance", flush=True)

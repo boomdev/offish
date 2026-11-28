@@ -159,6 +159,9 @@ h2 { font-size: .9rem; }
 .conversation-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .45rem; }
 .conversation-heading h2 { margin-inline-end: auto; }
 #conversation-form textarea { width: 100%; display: block; margin-block: .35rem; font: inherit; resize: vertical; }
+.conversation-options { display: grid; gap: .35rem; margin-bottom: .55rem; }
+.conversation-options label:not([hidden]) { display: block; font-size: .85rem; }
+.conversation-options select { max-width: 100%; }
 #conversation-send:not(:disabled) { border-color: var(--accent); color: var(--accent); font-weight: 650; }
 #conversation-history, #conversation-mentions, #mention-entries { list-style: none; padding: 0; }
 #conversation-history { max-height: 12rem; overflow: auto; font-size: .88rem; }
@@ -183,7 +186,8 @@ h2 { font-size: .9rem; }
 .cm-preview-opaque { color: var(--muted); }
 .cm-editor .cm-preview-quote { border-inline-start: 2px solid var(--accent); padding-inline-start: .6rem; }
 .cm-preview-image img { width: auto; max-width: 100%; max-height: 23rem; object-fit: contain; vertical-align: middle; }
-.cm-preview-table { margin: .3rem 0; border-collapse: collapse; font: inherit; cursor: text; }
+/* CodeMirror measures the table's box for pointer mapping and excludes margins. */
+.cm-preview-table { margin: 0; border-collapse: collapse; font: inherit; cursor: text; }
 .cm-preview-table th, .cm-preview-table td { padding: .25rem .65rem; border: 1px solid var(--line); }
 .cm-preview-table th { background: var(--rail); text-align: start; }
 .cm-preview-table :is(th, td, button) { white-space: pre-wrap; }

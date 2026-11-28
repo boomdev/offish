@@ -1491,16 +1491,18 @@ await window.__TAURI__.event.listen("offish-cycle-tab", ({payload}) => cycleTabs
 const resetConversation = setupConversation({
     invoke,
     labelForPath: shownPath,
-    getSelection() {
-        if (!editor || !canReview(active) || active.review || choosing || mutating) return null;
+    getSelection(mode) {
+        if (!active) return null;
+        if (!editor || !canReview(active) || (active.review && mode === "edit") ||
+            choosing || mutating) return undefined;
         const {from, to} = editor.state.selection.main;
-        return from === to ? null : {path: active.path, base: active.base.revision, from, to};
+        return {path: active.path, base: active.base.revision, ...(from === to ? {} : {from, to})};
     },
     async reviewProposal({path, proposal}) {
         const epoch = viewEpoch;
         const disk = await invoke("read_document", {path});
         if (epoch !== viewEpoch || disk.revision !== proposal.base_revision) {
-            throw new Error("The proposal is stale. Select the current text and ask again.");
+            throw new Error("The proposal is stale. Request a new edit against the saved document.");
         }
         const item = documents.get(path) ?? await open(path, "markdown");
         if (epoch !== viewEpoch || choosing || mutating ||

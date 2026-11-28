@@ -528,6 +528,38 @@ fn request<T: DeserializeOwned>(endpoint: &str, fields: Option<&[(&str, &str)]>)
     serde_json::from_slice(&output).map_err(|_| auth_error())
 }
 
+pub(super) fn model_catalog(token: &str) -> io::Result<serde_json::Value> {
+    let unavailable = || io::Error::other("The ChatGPT model catalog could not be loaded.");
+    if !valid_token(token) {
+        return Err(unavailable());
+    }
+    let header = format!("Authorization: Bearer {token}\n");
+    let mut curl = Command::new("/usr/bin/curl");
+    curl.env_clear().args([
+        "-q",
+        "--proto",
+        "=https",
+        "--fail",
+        "--silent",
+        "--max-time",
+        "20",
+        "--max-filesize",
+        "262144",
+        "--header",
+        "@-",
+        "https://api.openai.com/v1/models",
+    ]);
+    let (code, output) = run(&mut curl, Some(header.as_bytes())).map_err(|_| unavailable())?;
+    if code != 0 {
+        return Err(unavailable());
+    }
+    let catalog: serde_json::Value = serde_json::from_slice(&output).map_err(|_| unavailable())?;
+    if !catalog["models"].is_array() && !catalog["data"].is_array() {
+        return Err(unavailable());
+    }
+    Ok(catalog)
+}
+
 fn lookup(entry: &str) -> io::Result<Option<Vec<u8>>> {
     service("lookup", entry, None)
 }

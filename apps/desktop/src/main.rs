@@ -134,6 +134,13 @@ mod linux {
     }
 
     #[tauri::command]
+    async fn codex_models(
+        state: State<'_, Current>,
+    ) -> Response<offish::agent::codex::ModelCatalog> {
+        account_operation(state, offish::agent::codex::models).await
+    }
+
+    #[tauri::command]
     async fn connect_chatgpt(state: State<'_, Current>) -> Response<()> {
         account_operation(state, |accounts| {
             offish::agent::codex::check_runtime()?;
@@ -823,6 +830,7 @@ mod linux {
                 poll_agent_turn,
                 cancel_agent_turn,
                 chatgpt_connected,
+                codex_models,
                 connect_chatgpt,
                 disconnect_chatgpt,
                 list_directory,

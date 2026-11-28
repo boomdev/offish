@@ -76,12 +76,14 @@ impl Project {
         Request {
             provider: Provider::Offline,
             prompt: PROMPT.into(),
-            selection: Selection {
+            mode: Mode::Edit,
+            settings: codex::Settings::default(),
+            selection: Some(Selection {
                 path: "root-0/brief.md".into(),
                 base: root.read(relative).unwrap().revision,
-                from: range.start,
-                to: range.end,
-            },
+                from: Some(range.start),
+                to: Some(range.end),
+            }),
             mentions: mentions
                 .iter()
                 .map(|(path, directory)| Mention {
@@ -139,7 +141,7 @@ fn scoped_disclosure_refuses_canaries_even_as_explicit_mentions() {
         &mut conversation,
         &[("refs", true), ("refs/assumptions.md", false)],
     );
-    assert_eq!(prepared.selection.text, PASSAGE);
+    assert_eq!(prepared.selection.as_ref().unwrap().text, PASSAGE);
     assert!(prepared.limited);
     assert_eq!(prepared.files.len(), 1);
     assert_eq!(prepared.files[0].text, REF);
@@ -240,21 +242,18 @@ struct Instrumented<'a> {
 impl Adapter for Instrumented<'_> {
     fn start(&self, context: ProviderContext<'_>) -> Box<dyn Iterator<Item = Event> + Send> {
         assert_eq!(context.prompt, PROMPT);
-        assert_eq!(context.selection.text, PASSAGE);
+        let selection = context.selection.unwrap();
+        assert_eq!(selection.text, PASSAGE);
         assert_eq!(context.files.len(), 1);
         assert_eq!(context.files[0].text, REF);
         self.polled.set(self.polled.get() + 1);
-        let from = if self.malicious {
-            0
-        } else {
-            context.selection.from
-        };
+        let from = if self.malicious { 0 } else { selection.from };
         let events = [
             Event::Text("A first delta.".into()),
             Event::Candidate(SourceEdit {
                 from,
-                to: context.selection.to,
-                expected: context.selection.text.clone(),
+                to: selection.to,
+                expected: selection.text.clone(),
                 replacement: "Replace this.".into(),
             }),
         ];
@@ -375,4 +374,94 @@ fn history_caps_turns_and_deletion_cannot_be_undone_by_late_completion() {
     conversation.cancel(&prepared.id, &history).unwrap();
     assert!(history.load().unwrap().is_empty());
     assert!(!project.temp.join("chat/1.json").exists());
+}
+
+#[test]
+fn whole_document_ask_completes_without_proposal_or_write() {
+    let project = Project::new();
+    let mut request = project.request(&[]);
+    request.mode = Mode::Ask;
+    let selection = request.selection.as_mut().unwrap();
+    selection.from = None;
+    selection.to = None;
+    let mut conversation = Conversation::default();
+    let prepared = conversation
+        .prepare(&project.workspace, &project.private, request)
+        .unwrap();
+    let document = prepared.selection.as_ref().unwrap();
+    assert!(document.whole);
+    assert_eq!(document.text, BRIEF);
+    conversation
+        .approve(
+            &prepared.id,
+            &project.workspace,
+            &project.private,
+            &project.history(),
+        )
+        .unwrap();
+    assert!(matches!(
+        project.poll(&mut conversation, &prepared.id),
+        Update::Delta { .. }
+    ));
+    let Update::Done {
+        message,
+        staged: None,
+    } = project.poll(&mut conversation, &prepared.id)
+    else {
+        panic!("Ask returned a proposal");
+    };
+    assert!(matches!(message.outcome, Outcome::Complete));
+    assert_eq!(
+        fs::read_to_string(project.root().join("brief.md")).unwrap(),
+        BRIEF
+    );
+}
+
+#[test]
+fn unselected_edit_stages_only_changed_body_bytes() {
+    let project = Project::new();
+    let mut request = project.request(&[]);
+    let selection = request.selection.as_mut().unwrap();
+    selection.from = None;
+    selection.to = None;
+    let mut conversation = Conversation::default();
+    let prepared = conversation
+        .prepare(&project.workspace, &project.private, request)
+        .unwrap();
+    let selection = prepared.selection.as_ref().unwrap();
+    let metadata = front_matter_range(BRIEF).unwrap();
+    assert_eq!(selection.from, metadata.end);
+    assert_eq!(selection.text, BRIEF[metadata.end..]);
+    let from = BRIEF.find("Café").unwrap();
+    let staged = selection
+        .stage(
+            &prepared.id,
+            SourceEdit {
+                from: selection.from,
+                to: selection.to,
+                expected: selection.text.clone(),
+                replacement: selection.text.replace("Café", "Cafè"),
+            },
+            &project.workspace,
+            &project.private,
+        )
+        .unwrap();
+    let edit = &staged.proposal.hunks[0].edit;
+    assert_eq!(edit.from, from + 3);
+    assert_eq!(edit.expected, "é");
+    assert_eq!(edit.replacement, "è");
+    assert_eq!(
+        fs::read_to_string(project.root().join("brief.md")).unwrap(),
+        BRIEF
+    );
+    let (_, root, path) = project.workspace.route(&staged.path).unwrap();
+    assert!(matches!(
+        root.accept_proposal(&staged.proposal, &["document".into()])
+            .unwrap(),
+        Acceptance::Accepted { .. }
+    ));
+    assert_eq!(
+        root.read(path).unwrap().text.unwrap(),
+        BRIEF.replace("Café", "Cafè")
+    );
 }
