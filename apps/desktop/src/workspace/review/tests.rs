@@ -96,6 +96,54 @@ fn commit(
 }
 
 #[test]
+fn pilot_proposal_stages_two_exact_hunks_and_returns_restored_text() {
+    let fixture = Fixture::new();
+    let brief = include_str!("../../../../../plans/research/phase-0/fixtures/pilot/brief.md");
+    let original = format!("\u{feff}{}", brief.replace('\n', "\r\n"));
+    fs::write(fixture.document(), &original).unwrap();
+    let workspace = fixture.open();
+    let base = workspace.read(PATH).unwrap().revision;
+    let proposal = workspace.pilot_proposal(PATH, &base).unwrap();
+    assert_eq!(proposal.base_revision, base);
+    assert_eq!(
+        proposal
+            .hunks
+            .iter()
+            .map(|hunk| hunk.id.as_str())
+            .collect::<Vec<_>>(),
+        ["schedule", "budget"]
+    );
+    assert_eq!(fs::read_to_string(fixture.document()).unwrap(), original);
+    assert!(
+        workspace
+            .review_history(PATH)
+            .unwrap()
+            .checkpoints
+            .is_empty()
+    );
+    let (revision, id, remaining) = commit(&workspace, &proposal, "schedule");
+    let remaining = remaining.unwrap();
+    let partial = fs::read_to_string(fixture.document()).unwrap();
+    let edit = &remaining.hunks[0].edit;
+    assert_eq!(&partial[edit.from..edit.to], "* Confirm the budget.");
+    assert!(workspace.pilot_proposal(PATH, &base).is_err());
+    let (restored, text) = workspace
+        .restore_checkpoint_with_text(PATH, &revision, id)
+        .unwrap();
+    assert!(matches!(restored, Save::Saved { .. }));
+    assert_eq!(text.as_deref(), Some(original.as_str()));
+    assert_eq!(fs::read_to_string(fixture.document()).unwrap(), original);
+
+    fs::write(
+        fixture.document(),
+        original + "\r\n* Confirm the budget.\r\n",
+    )
+    .unwrap();
+    let duplicate_revision = workspace.read(PATH).unwrap().revision;
+    assert!(workspace.pilot_proposal(PATH, &duplicate_revision).is_err());
+}
+
+#[test]
 fn partial_acceptance_rebases_unicode_spans_and_restores_exact_source() {
     let fixture = Fixture::new();
     fs::set_permissions(fixture.document(), fs::Permissions::from_mode(0o640)).unwrap();

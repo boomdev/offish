@@ -4,12 +4,12 @@ status: draft
 
 # Pilot launch brief
 
-Keep the first release on the current schedule.
+Review the first release schedule after the pilot.
 
 ## Checklist
 
 * Review the [launch assumptions](assumptions.md).
-* Confirm the budget.
+* Confirm the budget with the pilot team.
 * Retain the source files.
 
 | Item | Target |

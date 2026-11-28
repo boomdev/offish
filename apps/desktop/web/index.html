@@ -49,6 +49,25 @@
     <aside id="details-pane" data-focus-zone="details" aria-label="Document details">
       <h2>Details</h2>
       <p id="details">Select a document.</p>
+      <section id="review" hidden>
+        <h3>Proposal review</h3>
+        <button id="review-start" type="button">Review pilot proposal</button>
+        <button id="review-jump" type="button" hidden>Go to change</button>
+        <button id="review-close" type="button" hidden>Dismiss proposal</button>
+        <p id="review-message" role="status" hidden></p>
+        <div id="review-history" hidden>
+          <label for="review-checkpoints">Checkpoints</label>
+          <select id="review-checkpoints"></select>
+          <button id="review-restore" type="button">Restore checkpoint</button>
+          <button id="review-delete" type="button">Delete checkpoint</button>
+        </div>
+        <div id="review-recovery" hidden>
+          <button id="review-compare" type="button">Show preimage</button>
+          <label for="review-preimage" hidden>Content before interruption</label>
+          <textarea id="review-preimage" rows="8" readonly hidden></textarea>
+          <button id="review-keep-disk" type="button" hidden>Keep current disk version</button>
+        </div>
+      </section>
       <section id="recovery" hidden>
         <h3>Interrupted save</h3>
         <button id="recover">Load recovered draft</button>
@@ -64,6 +83,16 @@
       </section>
     </aside>
   </div>
+  <dialog id="review-confirm" aria-labelledby="review-confirm-title" aria-describedby="review-confirm-message">
+    <form method="dialog">
+      <h2 id="review-confirm-title"></h2>
+      <p id="review-confirm-message"></p>
+      <div class="entry-buttons">
+        <button value="cancel" autofocus>Cancel</button>
+        <button id="review-confirm-action" value="confirm"></button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="entry-dialog" aria-labelledby="entry-heading">
     <form id="entry-form">
       <h2 id="entry-heading"></h2>

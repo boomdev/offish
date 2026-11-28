@@ -3,6 +3,7 @@ mod linux {
     use gtk::{gdk, glib::Propagation, prelude::*};
     use offish::markdown::SourceEdits;
     use offish::markdown::table_cell::{self, TableCell, TableCellAddress};
+    use offish::workspace::review::{Acceptance, Proposal, ReviewHistory};
     use offish::workspace::search::{SearchIndex, SearchReport, SearchRoot};
     use offish::workspace::{Document, Entry, PreviewImage, Save, TrashEntry, Workspace};
     use offish::workspaces::{ActiveWorkspace, CatalogStore, SavedWorkspace, canonical_roots};
@@ -496,6 +497,71 @@ mod linux {
     }
 
     #[tauri::command]
+    fn pilot_proposal(state: State<'_, Current>, path: String, base: String) -> Response<Proposal> {
+        with_root(state, &path, |root, relative| {
+            root.pilot_proposal(relative, &base)
+        })
+    }
+
+    #[tauri::command]
+    fn accept_review_hunk(
+        state: State<'_, Current>,
+        path: String,
+        proposal: Proposal,
+        hunk_id: String,
+    ) -> Response<Acceptance> {
+        with_root(state, &path, |root, relative| {
+            if proposal.path != relative {
+                return Err(io::Error::other("The proposal targets another document."));
+            }
+            root.accept_proposal(&proposal, &[hunk_id])
+        })
+    }
+
+    #[tauri::command]
+    fn review_history(state: State<'_, Current>, path: String) -> Response<ReviewHistory> {
+        with_root(state, &path, Workspace::review_history)
+    }
+
+    #[tauri::command]
+    fn restore_review_checkpoint(
+        state: State<'_, Current>,
+        path: String,
+        base: String,
+        id: u64,
+    ) -> Response<(Save, Option<String>)> {
+        with_root(state, &path, |root, relative| {
+            root.restore_checkpoint_with_text(relative, &base, id)
+        })
+    }
+
+    #[tauri::command]
+    fn delete_review_checkpoint(state: State<'_, Current>, path: String, id: u64) -> Response<()> {
+        with_root(state, &path, |root, relative| {
+            root.delete_checkpoint(relative, id)
+        })
+    }
+
+    #[tauri::command]
+    fn review_preimage(state: State<'_, Current>, path: String, id: u64) -> Response<String> {
+        with_root(state, &path, |root, relative| {
+            root.review_preimage(relative, id)
+        })
+    }
+
+    #[tauri::command]
+    fn keep_disk_after_review_conflict(
+        state: State<'_, Current>,
+        path: String,
+        id: u64,
+        base: String,
+    ) -> Response<()> {
+        with_root(state, &path, |root, relative| {
+            root.keep_disk_after_review_conflict(relative, id, Some(&base))
+        })
+    }
+
+    #[tauri::command]
     async fn inspect_table_cell(source: String, address: TableCellAddress) -> Response<TableCell> {
         tauri::async_runtime::spawn_blocking(move || table_cell::inspect(&source, &address))
             .await
@@ -644,6 +710,13 @@ mod linux {
                 read_document,
                 save_document,
                 save_source_edits,
+                pilot_proposal,
+                accept_review_hunk,
+                review_history,
+                restore_review_checkpoint,
+                delete_review_checkpoint,
+                review_preimage,
+                keep_disk_after_review_conflict,
                 inspect_table_cell,
                 edit_table_cell,
                 read_preview_image,

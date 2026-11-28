@@ -141,6 +141,17 @@ h2 { font-size: .9rem; }
 #editor p { margin: 1rem; }
 .cm-editor { height: 100%; }
 .cm-scroller { overflow: auto; overscroll-behavior-y: contain; }
+.review-source-removal { text-decoration: line-through; text-decoration-color: light-dark(#a33442, #e48d91); }
+.inline-review { margin: .35rem .7rem .65rem; border: 1px solid var(--line); border-radius: .35rem; }
+.inline-review .review-removal, .inline-review .review-addition { padding: .4rem .6rem; }
+.review-removal { background: light-dark(#f9e4e7, #44282e); color: light-dark(#6e2630, #ffd8d9); }
+.review-addition { background: light-dark(#e0f2e6, #203b31); color: light-dark(#164f31, #cff6db); }
+.inline-review strong { margin-inline-end: .65rem; }
+.inline-review del, .inline-review ins { white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-actions { display: flex; flex-wrap: wrap; gap: .4rem; padding: .4rem .6rem; }
+#review button, #review select { max-width: 100%; margin-block: .2rem; }
+#review-history label, #review-recovery label:not([hidden]) { display: block; margin-top: .6rem; }
+#review-preimage { width: 100%; }
 .cm-preview-heading { font-weight: 750; line-height: 1.4; }
 .cm-preview-heading-1 { font-size: 1.65em; }
 .cm-preview-heading-2 { font-size: 1.35em; }

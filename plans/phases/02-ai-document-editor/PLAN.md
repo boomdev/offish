@@ -168,7 +168,7 @@ reviews P2-T01–T06 and the remaining Phase 1 evidence before release.
 | P2-02 | Complete | The maintainer verified live preview, table source reveal, and independent scrolling on Omarchy. Native paint timing remains open under P2-T02. |
 | P2-03 | Complete | The maintainer confirmed the Omarchy check and pushed the changes. |
 | P2-04 | In progress | The Linux backend passes acceptance, restore and checkpoint relocation fixtures. Native durability and cross-platform verification remain open. |
-| P2-05 | Planned | Connect deterministic proposals, review controls, and the editor undo boundary to the workspace backend. |
+| P2-05 | Complete on Omarchy | The deterministic pilot passes native inline review, partial acceptance, rejection, restore, and stale-revision checks. Release verification remains open under P2-04 and P2-08. |
 | P2-06–P2-07 | Planned | Start with the deterministic provider and a negative scope fixture. The shipping sign-in and cross-platform sandbox checks remain open. |
 | P2-08 | Planned | Omarchy reference hardware is recorded. Identify macOS and Windows environments and owners and complete the checks carried over at Phase 1 closeout. |
 
@@ -292,3 +292,42 @@ with desktop features disabled. The P2-T03 fixtures cover restart
 before and after the rename, a renamed containing folder, an independent
 history at the reused original path, and a destination collision both
 before and after the move is recorded.
+
+### P2-05 inline review
+
+For CHG-01, ED-01 and NFR-05, stage a deterministic two-hunk proposal
+against the saved pilot brief. Show labelled removals and additions at
+their source lines with keyboard-operable acceptance and rejection.
+Keep review tied to the captured disk revision and use the existing
+checkpoint backend for restore. Seal editor undo at acceptance.
+Under P2-T03, check rejection, partial acceptance, stale revisions,
+review focus, checkpoint restore, and the undo boundary. The Linux
+backend supports this implementation slice. P2-04 durability and
+cross-platform release evidence remain open.
+
+Open a saved copy of the pilot `brief.md` and choose **Review pilot
+proposal** in Details. Review displays the two proposed changes on their
+source lines. Acceptance writes the selected change and focuses the next
+remaining hunk. Rejection drops the selected hunk. **Restore checkpoint**
+returns to the captured bytes after confirmation. Review uses read-only
+source so proposals remain visible inside Markdown constructs. The editor
+returns to the prior Markdown mode when review ends.
+
+On 28 November 2026, the locked offline development build, 45 Rust tests
+with desktop features, 42 Rust tests without desktop features, and seven
+JavaScript suites passed. The new fixtures check staging without writes,
+byte spans across BOM, CRLF and Unicode, labelled controls, and exact
+checkpoint restore. The existing Rust suite covers concurrent revisions
+and interrupted acceptance and restore.
+
+On Omarchy 4.5.0 with WebKitGTK 2.54.1 and GTK 3.24.52, the native
+P2-T03 run on a disposable BOM/CRLF pilot copy verified AT-SPI labels and
+focus, Enter to accept the schedule hunk, Tab and Enter to reject the
+rebased budget hunk, checkpoint restore, and the editor undo boundary.
+AT-SPI button activation exercised the click handlers and rejected an
+entire proposal without a write or checkpoint. An external edit during
+review dismissed the stale proposal and preserved the external bytes.
+The maintainer also confirmed that the pilot proposal review worked.
+Physical pointer and screen-reader speech checks remain part of native
+release acceptance, alongside the P2-04 durability and cross-platform
+gates.

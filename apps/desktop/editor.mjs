@@ -2,6 +2,7 @@ import { history, historyKeymap, isolateHistory, redo, redoDepth, undo, undoDept
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { fitPanes, paneWidth } from "./layout.mjs";
+import { inlineReview, reviewHunks } from "./inline-review.mjs";
 import { markdownPreview } from "./markdown-preview.mjs";
 import { dialogButtonIndex, floatingMenu } from "./menu.mjs";
 import { ancestorFolders, paneDestination, tabCycleIndex } from "./pane-focus.mjs";
@@ -29,6 +30,7 @@ let lastWorkspaceControl = null;
 let keyboardPaneFocus = false;
 const editorLabel = new Compartment();
 const editorPreview = new Compartment();
+const editorReview = new Compartment();
 
 const status = message => { $("status").textContent = message; };
 const report = error => status(String(error));
@@ -57,11 +59,13 @@ function renderDetails() {
     $("disk").value = active?.conflict?.text ?? "";
     $("keep").disabled = active?.conflict?.text == null || active?.saving;
     $("reload").disabled = active?.conflict?.text == null || active?.saving;
+    renderReview();
 }
 
 function renderTabs() {
     $("editor-tabs").hidden = documents.size === 0;
     $("markdown-mode").hidden = !canPreview(active);
+    $("markdown-mode").disabled = Boolean(active?.review || active?.reviewBusy);
     $("markdown-mode").value = active?.markdownMode ?? "live";
     $("tabs").replaceChildren(...[...documents.values()].map(item => {
         const tab = document.createElement("div");
@@ -168,6 +172,8 @@ function setBase(item, base) {
     item.text = base.text;
     item.editorState = null;
     item.cellDraft = null;
+    item.review = null;
+    item.reviewPreimage = null;
     const text = base.text ?? "";
     const unsupported = /\r(?!\n)/.test(text) ||
         (/\r\n/.test(text) && /(?<!\r)\n/.test(text));
@@ -309,8 +315,254 @@ function previewFor(item) {
     }), {simple, actions: simple ? tableActions(item) : undefined}) : [];
 }
 
+function reviewFor(item, state) {
+    if (!item.review) return item.reviewBusy ? inlineReview([], true) : [];
+    return inlineReview(reviewHunks(state, item.text, item.review), item.reviewBusy,
+        (accept, hunk) => decideReview(item, accept, hunk).catch(report),
+        index => focusReviewHunk(item, index));
+}
+
+function updateReviewEditor(item) {
+    if (active === item && editor) {
+        editor.dispatch({effects: [
+            editorPreview.reconfigure(item.review ? [] : previewFor(item)),
+            editorReview.reconfigure(reviewFor(item, editor.state)),
+        ]});
+    } else if (item.editorState) {
+        item.editorState = item.editorState.update({effects: [
+            editorPreview.reconfigure(item.review ? [] : previewFor(item)),
+            editorReview.reconfigure(reviewFor(item, item.editorState)),
+        ]}).state;
+    }
+}
+
+const canReview = item => canPreview(item) && !hasChanges(item) && !item.cellDraft &&
+    !item.saving && !item.conflict && item.recovered == null;
+
+function renderReview() {
+    const item = active;
+    $("review").hidden = !canPreview(item);
+    const reviewing = Boolean(item?.review);
+    const pending = item?.reviewHistory?.recovery === "conflict";
+    const available = canReview(item) && !pending;
+    const checkpoints = item?.reviewHistory?.checkpoints ?? [];
+    const select = $("review-checkpoints");
+    const selected = select.value;
+    const key = JSON.stringify([item?.path, checkpoints]);
+    if (select.dataset.history !== key) {
+        const options = [...checkpoints].reverse().map(checkpoint => {
+            const option = document.createElement("option");
+            option.value = checkpoint.id;
+            const change = checkpoint.hunk_ids.join(", ");
+            option.textContent = `#${checkpoint.id}${change ? " · " + change : ""}` +
+                (checkpoint.restorable ? "" : " · restore unavailable");
+            return option;
+        });
+        select.replaceChildren(...options);
+        if (options.some(option => option.value === selected)) select.value = selected;
+        select.dataset.history = key;
+    }
+    $("review-history").hidden = !checkpoints.length;
+    select.disabled = Boolean(item?.saving);
+    $("review-start").hidden = reviewing;
+    $("review-start").disabled = !available;
+    $("review-jump").hidden = $("review-close").hidden = !reviewing;
+    $("review-jump").disabled = $("review-close").disabled = Boolean(item?.saving);
+    $("review-restore").disabled = !available ||
+        !checkpoints.find(checkpoint => checkpoint.id === Number(select.value))?.restorable;
+    $("review-delete").disabled = !available;
+    $("review-recovery").hidden = !pending;
+    $("review-compare").disabled = Boolean(item?.saving);
+    $("review-keep-disk").disabled = !canReview(item);
+    const preimage = item?.reviewPreimage;
+    $("review-preimage").hidden = $("review-preimage").labels[0].hidden =
+        $("review-keep-disk").hidden = preimage == null;
+    if ($("review-preimage").value !== (preimage ?? "")) $("review-preimage").value = preimage ?? "";
+    const message = {
+        original_on_disk: "Review was interrupted. The original is on disk. You can start a fresh review.",
+        committed: "An interrupted review was recovered. Check the current file and its checkpoints.",
+        conflict: "Review was interrupted and the file changed. Compare the saved preimage with the current file.",
+    }[item?.reviewHistory?.recovery];
+    if ($("review-message").textContent !== (message ?? "")) $("review-message").textContent = message ?? "";
+    $("review-message").hidden = !message;
+}
+
+async function loadReviewHistory(item) {
+    if (!canPreview(item)) return;
+    const {path, base} = item;
+    const request = item.reviewHistoryRequest = {};
+    const history = await invoke("review_history", {path});
+    if (documents.get(path) !== item || item.base !== base || item.reviewHistoryRequest !== request) return;
+    item.reviewHistory = history;
+    if (history.recovery !== "conflict") item.reviewPreimage = null;
+    if (active === item) renderReview();
+}
+
+function focusReviewHunk(item, index = 0) {
+    if (active !== item) return;
+    if (!item.review) {
+        $("review-start").focus();
+        return;
+    }
+    const view = editor;
+    const proposal = item.review;
+    const hunks = reviewHunks(view.state, item.text, proposal);
+    const {id, anchor} = hunks[Math.min(index, hunks.length - 1)];
+    view.dispatch({effects: EditorView.scrollIntoView(anchor, {y: "center"})});
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (view !== editor || proposal !== item.review || item.reviewBusy) return;
+        const accept = [...view.dom.querySelectorAll("[data-review-accept]")]
+            .find(button => button.dataset.reviewAccept === id);
+        (accept ?? $("review-jump")).focus();
+    }));
+}
+
+async function reviewOperation(item, operation, action) {
+    if (choosing || mutating || active !== item || !canReview(item)) return;
+    const path = item.path;
+    const base = item.base.revision;
+    item.saving = item.reviewBusy = true;
+    updateReviewEditor(item);
+    renderTabs();
+    renderDetails();
+    try {
+        return await action({path, base});
+    } catch (error) {
+        await loadReviewHistory(item).catch(() => {});
+        status(`${operation}: ${error}`);
+    } finally {
+        item.saving = item.reviewBusy = false;
+        updateReviewEditor(item);
+        renderTabs();
+        renderDetails();
+    }
+}
+
+function installReviewVersion(item, base, remaining = null) {
+    setBase(item, base);
+    item.review = remaining;
+    item.conflict = null;
+    item.reviewHistory = null;
+    if (active === item) display(item, false);
+}
+
+async function confirmCheckpoint(action, id, message) {
+    const dialog = $("review-confirm");
+    $("review-confirm-title").textContent = `${action} checkpoint #${id}?`;
+    $("review-confirm-message").textContent = message;
+    $("review-confirm-action").textContent = `${action} checkpoint`;
+    dialog.returnValue = "cancel";
+    const closed = new Promise(resolve => dialog.addEventListener("close", resolve, {once: true}));
+    dialog.showModal();
+    await closed;
+    return dialog.returnValue === "confirm";
+}
+
+async function decideReview(item, accept, hunk) {
+    const proposal = item.review;
+    if (!proposal || item.saving || active !== item) return;
+    const index = proposal.hunks.findIndex(({id}) => id === hunk.id);
+    if (index === -1) return;
+    if (!accept) {
+        const hunks = proposal.hunks.filter(({id}) => id !== hunk.id);
+        item.review = hunks.length ? {...proposal, hunks} : null;
+        updateReviewEditor(item);
+        renderTabs();
+        renderDetails();
+        status("Change rejected.");
+    } else {
+        await reviewOperation(item, "Could not accept change", async ({path}) => {
+            const text = item.text.slice(0, hunk.start) + hunk.edit.replacement + item.text.slice(hunk.end);
+            const result = await invoke("accept_review_hunk", {path, proposal, hunkId: hunk.id});
+            if (result.status === "conflict") {
+                installReviewVersion(item, result.disk);
+                status("The file changed on disk. The proposal was dismissed.");
+            } else {
+                installReviewVersion(item, {revision: result.revision, text}, result.remaining);
+                status(`Change accepted. Checkpoint #${result.checkpoint_id} saved.`);
+            }
+            await loadReviewHistory(item).catch(report);
+        });
+    }
+    focusReviewHunk(item, index);
+}
+
+$("review-start").onclick = async () => {
+    const item = active;
+    await reviewOperation(item, "Could not start review", async args => {
+        item.review = await invoke("pilot_proposal", args);
+        status("Pilot proposal ready for review.");
+    });
+    focusReviewHunk(item);
+};
+$("review-jump").onclick = () => focusReviewHunk(active);
+$("review-close").onclick = () => {
+    active.review = null;
+    updateReviewEditor(active);
+    renderTabs();
+    renderDetails();
+    $("review-start").focus();
+    status("Proposal dismissed.");
+};
+$("review-checkpoints").onchange = renderReview;
+$("review-restore").onclick = async () => {
+    const item = active;
+    const base = item.base;
+    const id = Number($("review-checkpoints").value);
+    if (!await confirmCheckpoint("Restore", id, "Restoring removes this checkpoint and any newer checkpoints.")) return;
+    if (item.base !== base) return status("Restore stopped because the disk version changed.");
+    await reviewOperation(item, "Could not restore checkpoint", async args => {
+        const [result, text] = await invoke("restore_review_checkpoint", {...args, id});
+        if (result.status === "conflict") {
+            installReviewVersion(item, result.disk);
+            status("Restore stopped because the disk version changed.");
+        } else {
+            installReviewVersion(item, {revision: result.revision, text});
+            status(`Checkpoint #${id} restored.`);
+        }
+        await loadReviewHistory(item).catch(report);
+    });
+    if (active === item) focusEditorView();
+};
+$("review-delete").onclick = async () => {
+    const item = active;
+    const id = Number($("review-checkpoints").value);
+    if (!await confirmCheckpoint("Delete", id, "This permanently removes the saved checkpoint.")) return;
+    await reviewOperation(item, "Could not delete checkpoint", async ({path}) => {
+        await invoke("delete_review_checkpoint", {path, id});
+        await loadReviewHistory(item).catch(report);
+        status(`Checkpoint #${id} deleted.`);
+    });
+    if (active === item) $("review-start").focus();
+};
+$("review-compare").onclick = async () => {
+    const item = active;
+    const id = item.reviewHistory?.interrupted_id;
+    const base = item.base;
+    try {
+        const text = await invoke("review_preimage", {path: item.path, id});
+        if (item.base !== base || item.reviewHistory?.interrupted_id !== id) return;
+        item.reviewPreimage = text;
+        if (active === item) {
+            renderReview();
+            $("review-preimage").focus();
+        }
+    } catch (error) { report(error); }
+};
+$("review-keep-disk").onclick = async () => {
+    const item = active;
+    const id = item.reviewHistory?.interrupted_id;
+    await reviewOperation(item, "Could not resolve interrupted review", async args => {
+        await invoke("keep_disk_after_review_conflict", {...args, id});
+        item.review = null;
+        await loadReviewHistory(item).catch(report);
+        status("Kept the disk version and retained the preimage in checkpoint history.");
+    });
+    if (active === item) $("review-start").focus();
+};
+
 $("markdown-mode").onchange = async event => {
-    if (!editor || !canPreview(active)) return;
+    if (!editor || !canPreview(active) || active.review || active.reviewBusy) return;
     const item = active;
     const mode = event.target.value;
     try {
@@ -348,12 +600,14 @@ function display(item, focusEditor = true) {
             state: cached ?? EditorState.create({
                 doc: text,
                 extensions: [
+                    editorReview.of([]),
                     EditorState.lineSeparator.of(separator), EditorState.readOnly.of(item.readOnly),
                     EditorView.editable.of(!item.readOnly), EditorView.lineWrapping,
                     editorLabel.of(labelFor(item)),
-                    editorPreview.of(previewFor(item)),
+                    editorPreview.of(item.review ? [] : previewFor(item)),
                     history(), normalizeCrlf, keymap.of([{ key: "Mod-s", run: () => { save().catch(report); return true; } }, ...historyKeymap]),
                     EditorState.changeFilter.of(() => {
+                        if (item.review || item.reviewBusy) return false;
                         if (!editedCell(item)) return true;
                         status("Apply or cancel the open cell edit first.");
                         return false;
@@ -369,7 +623,10 @@ function display(item, focusEditor = true) {
                 ],
             }),
         });
-        if (cached) editor.dispatch({effects: editorLabel.reconfigure(labelFor(item))});
+        editor.dispatch({effects: [
+            editorLabel.reconfigure(labelFor(item)),
+            editorReview.reconfigure(reviewFor(item, editor.state)),
+        ]});
         item.editorState = editor.state;
     }
     renderTabs();
@@ -392,6 +649,7 @@ async function open(path, kind) {
         }
         if (choosing || mutating || epoch !== viewEpoch) return;
         documents.set(path, item);
+        loadReviewHistory(item).catch(report);
     }
     display(item);
     return item;
@@ -596,6 +854,7 @@ async function save(base = active?.base) {
             item.problem = null;
             item.recovered = null;
             status("Saved");
+            await loadReviewHistory(item).catch(report);
         }
     } catch (error) {
         try { item.recovered = await invoke("recovery_draft", {path: item.path}); } catch { /* Keep the save error. */ }
@@ -617,16 +876,23 @@ async function refresh() {
         try {
             const disk = await invoke("read_document", {path});
             if (epoch !== viewEpoch || mutating) return;
-            if (item.saving || item.cellDraft || item.base !== base) continue;
+            if (item.saving || item.cellDraft || item.base !== base || item.path !== path) continue;
             if (disk.revision === base.revision) {
                 item.conflict = null;
                 continue;
             }
             if (dirty(item)) item.conflict = disk;
             else {
+                const reviewing = item.review;
+                const focused = editor?.hasFocus || $("editor").contains(document.activeElement);
                 setBase(item, disk);
                 item.conflict = null;
-                if (item === active) display(item, editor?.hasFocus ?? false);
+                item.reviewHistory = null;
+                if (item === active) {
+                    display(item, focused);
+                    if (reviewing) status("The file changed on disk. The proposal was dismissed.");
+                }
+                await loadReviewHistory(item).catch(report);
             }
         } catch (error) {
             if (epoch !== viewEpoch || mutating) return;
@@ -716,6 +982,10 @@ async function changeEntry(action, name) {
         await invoke("rename_entry", {path, name});
     documents.clear();
     for (const [newPath, item] of entries) {
+        if (item.path !== newPath && item.review) {
+            item.review = null;
+            updateReviewEditor(item);
+        }
         item.path = newPath;
         documents.set(newPath, item);
     }
@@ -1005,7 +1275,7 @@ async function chooseFile() {
 
 async function clipboardAction(action) {
     const view = editor;
-    if (!view || (action !== "copy" && active.readOnly)) return;
+    if (!view || (action !== "copy" && view.state.readOnly)) return;
     const state = view.state;
     if (action === "paste") {
         const text = await invoke("clipboard_text");
@@ -1166,7 +1436,7 @@ $("file-menu").onclick = () => menus.open($("file-menu"), [
     {label: "Exit", run: requestClose},
 ]);
 $("edit-menu").onclick = () => {
-    const editable = Boolean(editor && active && !active.readOnly);
+    const editable = Boolean(editor && !editor.state.readOnly);
     const selection = Boolean(editor && !editor.state.selection.main.empty);
     menus.open($("edit-menu"), [
         {label: "Undo", run: () => { undo(editor); editor.focus(); }, disabled: !editable || !undoDepth(editor.state)},

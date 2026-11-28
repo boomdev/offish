@@ -11,6 +11,18 @@ mod tests;
 
 const HISTORY_LIMIT: usize = 20;
 const JOURNAL_VERSION: u32 = 1;
+const PILOT_HUNKS: [(&str, &str, &str); 2] = [
+    (
+        "schedule",
+        "Keep the first release on the current schedule.",
+        "Review the first release schedule after the pilot.",
+    ),
+    (
+        "budget",
+        "* Confirm the budget.",
+        "* Confirm the budget with the pilot team.",
+    ),
+];
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -428,6 +440,58 @@ impl Journal {
 }
 
 impl Workspace {
+    pub fn pilot_proposal(&self, path: &str, base: &str) -> io::Result<Proposal> {
+        let locked = self.locked_markdown(path)?;
+        let captured = ReviewSnapshot::read(&locked)?;
+        if captured.revision != base {
+            return Err(invalid(
+                "The file changed on disk. Reload it before starting review.",
+            ));
+        }
+        let source = std::str::from_utf8(&captured.bytes).map_err(io::Error::other)?;
+        let mut hunks = Vec::new();
+        for (id, expected, replacement) in PILOT_HUNKS {
+            let mut offset = 0;
+            let mut matches = source.split_inclusive('\n').filter_map(|line| {
+                let from = offset;
+                offset += line.len();
+                (line.trim_end_matches(['\r', '\n']) == expected).then_some(from)
+            });
+            let from = matches
+                .next()
+                .filter(|_| matches.next().is_none())
+                .ok_or_else(|| {
+                    invalid("Use a fresh copy of the pilot brief with both original lines.")
+                })?;
+            hunks.push(Hunk {
+                id: id.into(),
+                edit: SourceEdit {
+                    from,
+                    to: from + expected.len(),
+                    expected: expected.into(),
+                    replacement: replacement.into(),
+                },
+            });
+        }
+        hunks.sort_by_key(|hunk| hunk.edit.from);
+        let proposal = Proposal {
+            operation_id: "pilot-brief".into(),
+            path: path.into(),
+            base_revision: captured.revision,
+            profile: crate::markdown::PROFILE_VERSION,
+            hunks,
+        };
+        proposal.select(
+            source,
+            &proposal
+                .hunks
+                .iter()
+                .map(|hunk| hunk.id.clone())
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(proposal)
+    }
+
     fn review_store(
         &self,
         locked: &LockedTarget,
@@ -542,6 +606,16 @@ impl Workspace {
     }
 
     pub fn restore_checkpoint(&self, path: &str, base: &str, id: u64) -> io::Result<Save> {
+        self.restore_checkpoint_with_text(path, base, id)
+            .map(|(save, _)| save)
+    }
+
+    pub fn restore_checkpoint_with_text(
+        &self,
+        path: &str,
+        base: &str,
+        id: u64,
+    ) -> io::Result<(Save, Option<String>)> {
         self.restore_with_hook(path, base, id, |_| Ok(()))
     }
 
@@ -551,13 +625,16 @@ impl Workspace {
         base: &str,
         id: u64,
         hook: impl FnMut(SaveStep) -> io::Result<()>,
-    ) -> io::Result<Save> {
+    ) -> io::Result<(Save, Option<String>)> {
         let locked = self.locked_markdown(path)?;
         let captured = ReviewSnapshot::read(&locked)?;
         if captured.revision != base {
-            return Ok(Save::Conflict {
-                disk: captured.into_document(),
-            });
+            return Ok((
+                Save::Conflict {
+                    disk: captured.into_document(),
+                },
+                None,
+            ));
         }
         let private = self.review_private()?;
         let store = self
@@ -582,9 +659,11 @@ impl Workspace {
             chain,
         };
         self.clear_committed_journal(&locked.directory, &locked.name, &private)?;
-        replace_with_checkpoint(
+        let result = replace_with_checkpoint(
             &locked, &store, &mut state, &captured, &output, action, hook,
-        )
+        )?;
+        let text = matches!(result, Save::Saved { .. }).then_some(output);
+        Ok((result, text))
     }
 
     pub fn review_preimage(&self, path: &str, id: u64) -> io::Result<String> {
